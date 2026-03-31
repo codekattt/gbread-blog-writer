@@ -59,7 +59,7 @@ async function requestJson<T>(url: string, payload: unknown): Promise<T> {
 
 export function WriterWorkspace() {
   const [url, setUrl] = useState("");
-  const [tone, setTone] = useState<DraftToneOption>("professional");
+  const [tone, setTone] = useState<DraftToneOption>("blogger");
   const [length, setLength] = useState<DraftLengthOption>("medium");
   const [extraPrompt, setExtraPrompt] = useState("");
   const [analysisResult, setAnalysisResult] = useState<AnalyzeResponse | null>(null);

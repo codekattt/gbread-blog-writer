@@ -1,21 +1,23 @@
 import { z } from "zod";
 
-export const draftToneSchema = z.enum(["professional", "friendly", "insightful"]);
+export const draftToneSchema = z.enum(["expert", "blogger"]);
 export const draftLengthSchema = z.enum(["short", "medium", "long"]);
 
 export const draftSectionSchema = z.object({
   heading: z.string().min(1),
-  paragraphs: z.array(z.string().min(1)).min(1).max(3),
+  paragraphs: z.array(z.string().min(1)).min(2).max(4),
 });
 
 export const draftSchema = z.object({
   titleOptions: z.array(z.string().min(1)).length(3),
-  openingParagraph: z.string().min(1),
+  openingParagraphs: z.array(z.string().min(1)).min(2).max(3),
   sections: z.array(draftSectionSchema).min(3).max(5),
-  closingParagraph: z.string().min(1),
+  closingHeading: z.string().min(1),
+  closingParagraphs: z.array(z.string().min(1)).min(1).max(3),
   summary: z.string().min(1),
   hashtags: z.array(z.string().min(1)).min(4).max(10),
   cta: z.string().min(1),
+  sourceNote: z.string().min(1),
 });
 
 export const draftResponseJsonSchema = {
@@ -27,7 +29,12 @@ export const draftResponseJsonSchema = {
       minItems: 3,
       maxItems: 3,
     },
-    openingParagraph: { type: "string" },
+    openingParagraphs: {
+      type: "array",
+      items: { type: "string" },
+      minItems: 2,
+      maxItems: 3,
+    },
     sections: {
       type: "array",
       minItems: 3,
@@ -39,14 +46,20 @@ export const draftResponseJsonSchema = {
           paragraphs: {
             type: "array",
             items: { type: "string" },
-            minItems: 1,
-            maxItems: 3,
+            minItems: 2,
+            maxItems: 4,
           },
         },
         required: ["heading", "paragraphs"],
       },
     },
-    closingParagraph: { type: "string" },
+    closingHeading: { type: "string" },
+    closingParagraphs: {
+      type: "array",
+      items: { type: "string" },
+      minItems: 1,
+      maxItems: 3,
+    },
     summary: { type: "string" },
     hashtags: {
       type: "array",
@@ -55,15 +68,18 @@ export const draftResponseJsonSchema = {
       maxItems: 10,
     },
     cta: { type: "string" },
+    sourceNote: { type: "string" },
   },
   required: [
     "titleOptions",
-    "openingParagraph",
+    "openingParagraphs",
     "sections",
-    "closingParagraph",
+    "closingHeading",
+    "closingParagraphs",
     "summary",
     "hashtags",
     "cta",
+    "sourceNote",
   ],
 };
 

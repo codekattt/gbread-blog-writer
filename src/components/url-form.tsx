@@ -19,15 +19,14 @@ type UrlFormProps = {
 };
 
 const toneOptions: Array<{ value: DraftToneOption; label: string; description: string }> = [
-  { value: "professional", label: "전문형", description: "정돈되고 신뢰감 있는 설명형" },
-  { value: "friendly", label: "친근형", description: "부드럽고 읽기 쉬운 블로그 톤" },
-  { value: "insightful", label: "인사이트형", description: "포인트를 또렷하게 짚는 해설형" },
+  { value: "expert", label: "전문가형", description: "정돈되고 객관적인 설명형 문체" },
+  { value: "blogger", label: "블로거형", description: "친근하고 가벼운 블로그 말투" },
 ];
 
 const lengthOptions: Array<{ value: DraftLengthOption; label: string }> = [
-  { value: "short", label: "짧게" },
-  { value: "medium", label: "보통" },
-  { value: "long", label: "길게" },
+  { value: "short", label: "짧게 (1,200자 이상 ~ 2,000자 미만)" },
+  { value: "medium", label: "보통 (2,000자 이상 ~ 3,500자 미만)" },
+  { value: "long", label: "길게 (3,500자 이상 ~ 5,500자 미만)" },
 ];
 
 export function UrlForm({
@@ -87,9 +86,6 @@ export function UrlForm({
             🔥 유튜브 영상 기반 블로그 초안 생성기 🔥 
           </h2>
         </div>
-        <p className="max-w-md text-sm leading-6 text-[var(--color-muted)]">
-          공개 transcript가 있는 영상 기준으로 가장 안정적으로 동작합니다.
-        </p>
       </div>
 
       <div className="mt-6 grid gap-5">
@@ -107,7 +103,7 @@ export function UrlForm({
         <div className="grid gap-5 lg:grid-cols-[1.2fr_0.8fr]">
           <div className="grid gap-3">
             <span className="text-sm font-semibold text-[var(--color-ink)]">글 톤</span>
-            <div className="grid gap-3 sm:grid-cols-3">
+            <div className="grid gap-3 sm:grid-cols-2">
               {toneOptions.map((option) => {
                 const selected = option.value === tone;
                 return (
