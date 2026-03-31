@@ -2,7 +2,7 @@ import { NextResponse } from "next/server";
 import { z } from "zod";
 
 import { generateStructuredContent } from "@/lib/ai/gemini";
-import { formatErrorForLog, toErrorPayload } from "@/lib/errors/app-error";
+import { AppError, formatErrorForLog, toErrorPayload } from "@/lib/errors/app-error";
 import { buildAnalyzePrompt } from "@/lib/prompts/analyze";
 import { analysisResponseJsonSchema, analysisSchema } from "@/lib/schemas/analysis";
 import { fetchYoutubeMetadata } from "@/lib/youtube/metadata";
@@ -17,16 +17,49 @@ export async function POST(request: Request) {
   try {
     const body = analyzeRequestSchema.parse(await request.json());
     const normalized = normalizeYoutubeInput(body.url);
-    const [video, transcript] = await Promise.all([
-      fetchYoutubeMetadata(normalized.videoId, normalized.canonicalUrl),
-      fetchYoutubeTranscript(normalized.canonicalUrl),
-    ]);
+    const video = await fetchYoutubeMetadata(normalized.videoId, normalized.canonicalUrl);
+
+    let transcript: Awaited<ReturnType<typeof fetchYoutubeTranscript>> | null = null;
+    let sourceMode: "transcript" | "youtube_video" = "transcript";
+
+    try {
+      transcript = await fetchYoutubeTranscript(normalized.canonicalUrl);
+    } catch (error) {
+      if (error instanceof AppError) {
+        console.warn("[api/analyze] transcript fallback", {
+          url: normalized.canonicalUrl,
+          code: error.code,
+          message: error.message,
+        });
+      }
+
+      sourceMode = "youtube_video";
+    }
+
+    const contents =
+      sourceMode === "transcript"
+        ? buildAnalyzePrompt({
+            video,
+            transcript: transcript?.promptText,
+            sourceMode,
+          })
+        : [
+            {
+              fileData: {
+                fileUri: normalized.canonicalUrl,
+                mimeType: "video/*",
+              },
+            },
+            {
+              text: buildAnalyzePrompt({
+                video,
+                sourceMode,
+              }),
+            },
+          ];
 
     const analysis = await generateStructuredContent({
-      prompt: buildAnalyzePrompt({
-        video,
-        transcript: transcript.promptText,
-      }),
+      contents,
       schema: analysisResponseJsonSchema,
       validate: (value) => analysisSchema.parse(value),
       temperature: 0.3,
@@ -36,8 +69,9 @@ export async function POST(request: Request) {
       video,
       analysis,
       transcript: {
-        languageCode: transcript.languageCode,
-        characterCount: transcript.text.length,
+        languageCode: transcript?.languageCode || null,
+        characterCount: transcript?.text.length || 0,
+        mode: sourceMode,
       },
     });
   } catch (error) {

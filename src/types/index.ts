@@ -14,6 +14,7 @@ export type AnalyzeResponse = AnalysisResult & {
   transcript: {
     languageCode: string | null;
     characterCount: number;
+    mode: "transcript" | "youtube_video";
   };
 };
 

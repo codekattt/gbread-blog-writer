@@ -1,7 +1,7 @@
-import type { AnalysisResult } from "@/types";
+import type { AnalyzeResponse } from "@/types";
 
 type AnalysisPanelProps = {
-  analysis: AnalysisResult | null;
+  analysis: AnalyzeResponse | null;
 };
 
 function formatTimestamp(totalSeconds: number) {
@@ -58,8 +58,18 @@ export function AnalysisPanel({ analysis }: AnalysisPanelProps) {
               <p className="mt-1 font-semibold">{analysis.video.channelName}</p>
             </div>
             <div>
+              <p className="text-xs uppercase tracking-[0.18em] text-[var(--color-muted)]">Input Mode</p>
+              <p className="mt-1 font-semibold">
+                {analysis.transcript.mode === "transcript" ? "Transcript 분석" : "Gemini 영상 직접 분석"}
+              </p>
+            </div>
+            <div>
               <p className="text-xs uppercase tracking-[0.18em] text-[var(--color-muted)]">Transcript Ready</p>
-              <p className="mt-1 font-semibold">분석 가능한 텍스트 기준으로 정리됨</p>
+              <p className="mt-1 font-semibold">
+                {analysis.transcript.languageCode
+                  ? `${analysis.transcript.languageCode} / ${analysis.transcript.characterCount.toLocaleString()} chars`
+                  : "자막 없이 영상 직접 분석"}
+              </p>
             </div>
           </div>
         </div>

@@ -15,7 +15,8 @@ function getClient() {
 }
 
 type GenerateStructuredContentParams<T> = {
-  prompt: string;
+  prompt?: string;
+  contents?: unknown;
   schema: unknown;
   validate: (value: unknown) => T;
   temperature?: number;
@@ -24,18 +25,29 @@ type GenerateStructuredContentParams<T> = {
 
 export async function generateStructuredContent<T>({
   prompt,
+  contents,
   schema,
   validate,
   temperature = 0.4,
   model = DEFAULT_MODEL,
 }: GenerateStructuredContentParams<T>): Promise<T> {
   const client = getClient();
+  const requestContents = contents ?? prompt;
+
+  if (!requestContents) {
+    throw new AppError({
+      message: "Gemini에 전달할 입력이 비어 있습니다.",
+      source: "gemini",
+      code: "EMPTY_GEMINI_INPUT",
+      details: `model=${model}`,
+    });
+  }
 
   let response: Awaited<ReturnType<typeof client.models.generateContent>>;
   try {
     response = await client.models.generateContent({
       model,
-      contents: prompt,
+      contents: requestContents,
       config: {
         temperature,
         responseMimeType: "application/json",

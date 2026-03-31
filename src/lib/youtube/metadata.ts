@@ -93,16 +93,6 @@ export async function fetchYoutubeMetadata(
 ): Promise<YoutubeMetadata> {
   const html = await fetchWatchPage(canonicalUrl);
   const playerResponse = parseInlineJson(html, "ytInitialPlayerResponse");
-  if (!playerResponse) {
-    throw new AppError({
-      message: "유튜브 페이지 구조를 해석하지 못했습니다.",
-      source: "youtube_metadata",
-      code: "UNPARSEABLE_YOUTUBE_PAGE",
-      hint: "YouTube 페이지 구조가 바뀌었거나 접근이 제한됐을 수 있습니다.",
-      details: canonicalUrl,
-    });
-  }
-
   const videoDetails = playerResponse?.videoDetails as
     | {
         title?: string;
@@ -124,6 +114,16 @@ export async function fetchYoutubeMetadata(
         thumbnailUrl: fallbackData.thumbnail_url || null,
       }
     : null;
+
+  if (!videoDetails && !fallback) {
+    throw new AppError({
+      message: "유튜브 페이지 구조를 해석하지 못했습니다.",
+      source: "youtube_metadata",
+      code: "UNPARSEABLE_YOUTUBE_PAGE",
+      hint: "YouTube 페이지 구조가 바뀌었거나 접근이 제한됐을 수 있습니다.",
+      details: canonicalUrl,
+    });
+  }
 
   const durationSeconds = Number(videoDetails?.lengthSeconds || 0);
   const totalMinutes = Math.floor(durationSeconds / 60);
