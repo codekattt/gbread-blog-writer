@@ -1,16 +1,27 @@
 "use client";
 
-import { useState, useTransition } from "react";
+import { useState } from "react";
 
 import { AnalysisPanel } from "@/components/analysis-panel";
 import { DraftPanel } from "@/components/draft-panel";
-import { UrlForm } from "@/components/url-form";
+import { UrlForm, type ProcessingStage } from "@/components/url-form";
 import type {
+  AppErrorPayload,
   AnalyzeResponse,
   DraftLengthOption,
   DraftToneOption,
   DraftWriteResponse,
 } from "@/types";
+
+class RequestError extends Error {
+  payload: AppErrorPayload;
+
+  constructor(payload: AppErrorPayload) {
+    super(payload.error);
+    this.name = "RequestError";
+    this.payload = payload;
+  }
+}
 
 async function requestJson<T>(url: string, payload: unknown): Promise<T> {
   const response = await fetch(url, {
@@ -21,10 +32,26 @@ async function requestJson<T>(url: string, payload: unknown): Promise<T> {
     body: JSON.stringify(payload),
   });
 
-  const data = (await response.json()) as T | { error?: string };
+  const contentType = response.headers.get("content-type") || "";
+  const data = contentType.includes("application/json")
+    ? ((await response.json()) as T | AppErrorPayload)
+    : ({
+        error: await response.text(),
+        source: "client",
+        code: "NON_JSON_RESPONSE",
+      } satisfies AppErrorPayload);
+
   if (!response.ok) {
-    const message = typeof data === "object" && data && "error" in data ? data.error : null;
-    throw new Error(message || "요청 처리 중 오류가 발생했습니다.");
+    if (typeof data === "object" && data && "error" in data) {
+      throw new RequestError(data);
+    }
+
+    throw new RequestError({
+      error: "요청 처리 중 오류가 발생했습니다.",
+      source: "client",
+      code: "UNKNOWN_REQUEST_ERROR",
+      status: response.status,
+    });
   }
 
   return data as T;
@@ -38,36 +65,53 @@ export function WriterWorkspace() {
   const [analysisResult, setAnalysisResult] = useState<AnalyzeResponse | null>(null);
   const [draftResult, setDraftResult] = useState<DraftWriteResponse | null>(null);
   const [error, setError] = useState<string | null>(null);
-  const [isPending, startTransition] = useTransition();
+  const [errorDetails, setErrorDetails] = useState<AppErrorPayload | null>(null);
+  const [stage, setStage] = useState<ProcessingStage>("idle");
 
-  const handleSubmit = () => {
-    startTransition(async () => {
-      try {
-        setError(null);
-        setDraftResult(null);
+  const isPending = stage === "analyzing" || stage === "writing";
 
-        const analysis = await requestJson<AnalyzeResponse>("/api/analyze", { url });
-        setAnalysisResult(analysis);
+  const handleSubmit = async () => {
+    try {
+      setError(null);
+      setErrorDetails(null);
+      setAnalysisResult(null);
+      setDraftResult(null);
+      setStage("analyzing");
 
-        const draft = await requestJson<DraftWriteResponse>("/api/write", {
-          video: analysis.video,
-          analysis: analysis.analysis,
-          options: {
-            tone,
-            length,
-            extraPrompt,
-          },
-        });
+      const analysis = await requestJson<AnalyzeResponse>("/api/analyze", { url });
+      setAnalysisResult(analysis);
+      setStage("writing");
 
-        setDraftResult(draft);
-      } catch (submitError) {
-        setError(
+      const draft = await requestJson<DraftWriteResponse>("/api/write", {
+        video: analysis.video,
+        analysis: analysis.analysis,
+        options: {
+          tone,
+          length,
+          extraPrompt,
+        },
+      });
+
+      setDraftResult(draft);
+      setStage("success");
+    } catch (submitError) {
+      setStage("error");
+      if (submitError instanceof RequestError) {
+        setError(submitError.payload.error);
+        setErrorDetails(submitError.payload);
+        return;
+      }
+
+      setError(submitError instanceof Error ? submitError.message : "초안 생성 중 예상치 못한 오류가 발생했습니다.");
+      setErrorDetails({
+        error:
           submitError instanceof Error
             ? submitError.message
             : "초안 생성 중 예상치 못한 오류가 발생했습니다.",
-        );
-      }
-    });
+        source: "client",
+        code: "UNHANDLED_CLIENT_ERROR",
+      });
+    }
   };
 
   return (
@@ -79,6 +123,8 @@ export function WriterWorkspace() {
         extraPrompt={extraPrompt}
         isPending={isPending}
         error={error}
+        errorDetails={errorDetails}
+        stage={stage}
         onUrlChange={setUrl}
         onToneChange={setTone}
         onLengthChange={setLength}
@@ -86,7 +132,7 @@ export function WriterWorkspace() {
         onSubmit={handleSubmit}
       />
 
-      <div className="grid gap-6 xl:grid-cols-[0.92fr_1.08fr]">
+      <div className="grid gap-6">
         <AnalysisPanel analysis={analysisResult} />
         <DraftPanel draft={draftResult} />
       </div>

@@ -1,8 +1,9 @@
 import type { Analysis } from "@/lib/schemas/analysis";
+import type { AppErrorPayload } from "@/lib/errors/app-error";
 import type { DraftBody, DraftLengthOption, DraftToneOption } from "@/lib/schemas/draft";
 import type { YoutubeMetadata } from "@/lib/youtube/types";
 
-export type { Analysis, DraftLengthOption, DraftToneOption, YoutubeMetadata };
+export type { Analysis, AppErrorPayload, DraftLengthOption, DraftToneOption, YoutubeMetadata };
 
 export type AnalysisResult = {
   video: YoutubeMetadata;

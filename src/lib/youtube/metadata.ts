@@ -1,3 +1,5 @@
+import { AppError } from "@/lib/errors/app-error";
+import { fetchJsonOrThrow, fetchTextOrThrow } from "@/lib/errors/http";
 import type { YoutubeMetadata } from "@/lib/youtube/types";
 
 const WATCH_PAGE_USER_AGENT =
@@ -54,40 +56,35 @@ function parseInlineJson(html: string, variableName: string) {
 }
 
 async function fetchWatchPage(url: string) {
-  const response = await fetch(url, {
-    headers: {
-      "Accept-Language": "ko-KR,ko;q=0.9,en-US;q=0.8,en;q=0.7",
-      "User-Agent": WATCH_PAGE_USER_AGENT,
+  return fetchTextOrThrow({
+    source: "youtube_metadata",
+    url,
+    message: "유튜브 페이지 메타데이터를 가져오지 못했습니다.",
+    hint: "해당 영상이 공개 상태인지, 네트워크에서 YouTube 접근이 가능한지 확인해주세요.",
+    init: {
+      headers: {
+        "Accept-Language": "ko-KR,ko;q=0.9,en-US;q=0.8,en;q=0.7",
+        "User-Agent": WATCH_PAGE_USER_AGENT,
+      },
     },
   });
-
-  if (!response.ok) {
-    throw new Error("유튜브 페이지 메타데이터를 가져오지 못했습니다.");
-  }
-
-  return response.text();
 }
 
 async function fetchOEmbed(url: string) {
-  const response = await fetch(
-    `https://www.youtube.com/oembed?url=${encodeURIComponent(url)}&format=json`,
-  );
-
-  if (!response.ok) {
+  try {
+    return await fetchJsonOrThrow<{
+      title?: string;
+      author_name?: string;
+      thumbnail_url?: string;
+    }>({
+      source: "youtube_metadata",
+      url: `https://www.youtube.com/oembed?url=${encodeURIComponent(url)}&format=json`,
+      message: "유튜브 oEmbed 메타데이터를 가져오지 못했습니다.",
+      hint: "일부 영상은 oEmbed 제공이 제한될 수 있습니다.",
+    });
+  } catch {
     return null;
   }
-
-  const data = (await response.json()) as {
-    title?: string;
-    author_name?: string;
-    thumbnail_url?: string;
-  };
-
-  return {
-    title: data.title || "제목 없음",
-    channelName: data.author_name || "채널 정보 없음",
-    thumbnailUrl: data.thumbnail_url || null,
-  };
 }
 
 export async function fetchYoutubeMetadata(
@@ -96,6 +93,16 @@ export async function fetchYoutubeMetadata(
 ): Promise<YoutubeMetadata> {
   const html = await fetchWatchPage(canonicalUrl);
   const playerResponse = parseInlineJson(html, "ytInitialPlayerResponse");
+  if (!playerResponse) {
+    throw new AppError({
+      message: "유튜브 페이지 구조를 해석하지 못했습니다.",
+      source: "youtube_metadata",
+      code: "UNPARSEABLE_YOUTUBE_PAGE",
+      hint: "YouTube 페이지 구조가 바뀌었거나 접근이 제한됐을 수 있습니다.",
+      details: canonicalUrl,
+    });
+  }
+
   const videoDetails = playerResponse?.videoDetails as
     | {
         title?: string;
@@ -109,7 +116,14 @@ export async function fetchYoutubeMetadata(
       }
     | undefined;
 
-  const fallback = await fetchOEmbed(canonicalUrl);
+  const fallbackData = await fetchOEmbed(canonicalUrl);
+  const fallback = fallbackData
+    ? {
+        title: fallbackData.title || "제목 없음",
+        channelName: fallbackData.author_name || "채널 정보 없음",
+        thumbnailUrl: fallbackData.thumbnail_url || null,
+      }
+    : null;
 
   const durationSeconds = Number(videoDetails?.lengthSeconds || 0);
   const totalMinutes = Math.floor(durationSeconds / 60);
