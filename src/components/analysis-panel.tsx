@@ -9,7 +9,7 @@ export function AnalysisPanel({ analysis }: AnalysisPanelProps) {
     return (
       <section className="section-card p-5 sm:p-6">
         <p className="panel-title">Analysis</p>
-        <div className="mt-4 rounded-[1.5rem] border border-dashed border-[var(--color-line)] bg-white/60 p-6 text-sm leading-6 text-[var(--color-muted)]">
+        <div className="mt-4 rounded-[1.5rem] border border-dashed border-[var(--color-line)] bg-[var(--color-input-bg)] p-6 text-sm leading-6 text-[var(--color-muted)]">
           분석 결과가 아직 없습니다. 유튜브 링크를 입력하고 실행하면 이 영역에 영상
           요약만 간단하게 표시됩니다.
         </div>
@@ -31,7 +31,7 @@ export function AnalysisPanel({ analysis }: AnalysisPanelProps) {
         </span>
       </div>
 
-      <article className="mt-6 rounded-[1.75rem] border border-[var(--color-line)] bg-white p-5 shadow-[0_18px_36px_rgba(120,53,15,0.06)] sm:p-6">
+      <article className="mt-6 rounded-[1.75rem] border border-[var(--color-line)] bg-[var(--color-elevated)] p-5 shadow-[var(--color-shadow)] sm:p-6">
         <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
           <div className="max-w-4xl">
             <p className="text-xs uppercase tracking-[0.22em] text-[var(--color-muted)]">Video Summary</p>
@@ -42,7 +42,7 @@ export function AnalysisPanel({ analysis }: AnalysisPanelProps) {
               {analysis.analysis.summary}
             </p>
           </div>
-          <div className="grid gap-3 rounded-[1.25rem] bg-[rgba(255,247,237,0.68)] p-4 text-sm text-[var(--color-ink)] lg:min-w-64">
+          <div className="grid gap-3 rounded-[1.25rem] bg-[var(--color-elevated-soft)] p-4 text-sm text-[var(--color-ink)] lg:min-w-64">
             <div>
               <p className="text-xs uppercase tracking-[0.18em] text-[var(--color-muted)]">Length</p>
               <p className="mt-1 font-semibold">{analysis.video.durationLabel}</p>

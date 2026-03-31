@@ -22,10 +22,10 @@ function getLengthRequirement(length: DraftLengthOption) {
 function getToneRequirement(tone: DraftToneOption) {
   switch (tone) {
     case "expert":
-      return "글의 톤은 전문가형으로 작성하세요. 문장은 정돈되고 객관적이어야 하며, 근거와 설명이 또렷하게 전달되도록 쓰세요. 다만 지나치게 딱딱한 보고서 문체로 흐르지는 않게 하세요.";
+      return "최종 문체는 반드시 전문가형으로 맞추세요. 문장은 정돈되고 객관적이어야 하며, 근거와 설명이 또렷하게 전달되도록 쓰세요. 친근한 블로거 말투 예시는 무시하고, 과한 구어체 표현은 사용하지 마세요.";
     case "blogger":
     default:
-      return '글의 톤은 블로거형으로 작성하세요. 친근하고 가벼운 블로그 말투를 유지하고, "~더라고요", "~거든요", "솔직히", "의외로" 같은 구어체를 자연스럽게 활용하세요.';
+      return '최종 문체는 반드시 블로거형으로 맞추세요. 친근하고 가벼운 블로그 말투를 유지하고, "~더라고요", "~거든요", "솔직히", "의외로" 같은 구어체를 자연스럽게 활용하세요.';
   }
 }
 
@@ -161,6 +161,9 @@ ${getToneRequirement(tone)}
 [시스템 옵션]
 - tone: ${tone}
 - length: ${length}
+
+[최종 톤 우선 지시]
+- ${getToneRequirement(tone)}
 
 [추가 사용자 지시사항]
 - ${extraPrompt?.trim() || "없음"}

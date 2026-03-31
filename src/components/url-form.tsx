@@ -96,7 +96,7 @@ export function UrlForm({
             value={url}
             onChange={(event) => onUrlChange(event.target.value)}
             placeholder="https://www.youtube.com/watch?v=..."
-            className="w-full rounded-[1.1rem] border border-[var(--color-line)] bg-white px-4 py-4 text-sm text-[var(--color-ink)] shadow-[inset_0_1px_0_rgba(255,255,255,0.8)] placeholder:text-[rgba(107,114,128,0.72)]"
+            className="w-full rounded-[1.1rem] border border-[var(--color-line)] bg-[var(--color-input-bg)] px-4 py-4 text-sm text-[var(--color-ink)] placeholder:text-[var(--color-muted)]"
           />
         </label>
 
@@ -113,8 +113,8 @@ export function UrlForm({
                     onClick={() => onToneChange(option.value)}
                     className={`rounded-[1.25rem] border px-4 py-4 text-left ${
                       selected
-                        ? "border-[rgba(194,65,12,0.28)] bg-[rgba(255,237,213,0.92)] shadow-[0_8px_24px_rgba(194,65,12,0.12)]"
-                        : "border-[var(--color-line)] bg-white/90 hover:border-[rgba(194,65,12,0.22)] hover:bg-[rgba(255,247,237,0.92)]"
+                        ? "border-[var(--color-accent-border)] bg-[var(--color-accent-bg)] shadow-[var(--color-shadow)]"
+                        : "border-[var(--color-line)] bg-[var(--color-input-bg)] hover:border-[var(--color-accent-border)] hover:bg-[var(--color-accent-hover)]"
                     }`}
                   >
                     <p className="text-sm font-semibold text-[var(--color-ink)]">{option.label}</p>
@@ -130,7 +130,7 @@ export function UrlForm({
             <select
               value={length}
               onChange={(event) => onLengthChange(event.target.value as DraftLengthOption)}
-              className="rounded-[1.1rem] border border-[var(--color-line)] bg-white px-4 py-4 text-sm text-[var(--color-ink)]"
+              className="rounded-[1.1rem] border border-[var(--color-line)] bg-[var(--color-input-bg)] px-4 py-4 text-sm text-[var(--color-ink)]"
             >
               {lengthOptions.map((option) => (
                 <option key={option.value} value={option.value}>
@@ -148,19 +148,19 @@ export function UrlForm({
             onChange={(event) => onExtraPromptChange(event.target.value)}
             rows={5}
             placeholder="예: 우리 브랜드 톤에 맞게 결론을 조금 더 설득형으로 정리해줘."
-            className="min-h-32 w-full rounded-[1.25rem] border border-[var(--color-line)] bg-white px-4 py-4 text-sm leading-6 text-[var(--color-ink)] placeholder:text-[rgba(107,114,128,0.72)]"
+            className="min-h-32 w-full rounded-[1.25rem] border border-[var(--color-line)] bg-[var(--color-input-bg)] px-4 py-4 text-sm leading-6 text-[var(--color-ink)] placeholder:text-[var(--color-muted)]"
           />
         </label>
 
-        <div className="flex flex-col gap-3 border-t border-[rgba(31,41,55,0.08)] pt-5 sm:flex-row sm:items-center sm:justify-between">
+        <div className="flex flex-col gap-3 border-t border-[var(--color-neutral-border)] pt-5 sm:flex-row sm:items-center sm:justify-between">
           <div className="text-sm leading-6 text-[var(--color-muted)]">
-            {error ? <span className="text-[#b91c1c]">{statusMessage}</span> : statusMessage}
+            {error ? <span className="text-[var(--color-danger)]">{statusMessage}</span> : statusMessage}
           </div>
           <button
             type="button"
             onClick={onSubmit}
             disabled={isPending}
-            className="inline-flex min-w-56 items-center justify-center gap-2 rounded-full bg-[var(--color-panel-strong)] px-6 py-3 text-sm font-semibold text-[var(--color-panel-strong-ink)] hover:-translate-y-0.5 hover:bg-[#111827] disabled:cursor-not-allowed disabled:opacity-60"
+            className="inline-flex min-w-56 items-center justify-center gap-2 rounded-full bg-[var(--color-panel-strong)] px-6 py-3 text-sm font-semibold text-[var(--color-panel-strong-ink)] hover:-translate-y-0.5 hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-60"
           >
             {isPending ? (
               <span className="inline-flex h-4 w-4 animate-spin rounded-full border-2 border-white/25 border-t-white" />
@@ -169,14 +169,14 @@ export function UrlForm({
           </button>
         </div>
 
-        <div className="grid gap-3 border-t border-[rgba(31,41,55,0.08)] pt-5 lg:grid-cols-2">
+        <div className="grid gap-3 border-t border-[var(--color-neutral-border)] pt-5 lg:grid-cols-2">
           <div
             className={`rounded-[1.25rem] border px-4 py-4 ${
               analysisStatus === "active"
-                ? "border-[rgba(194,65,12,0.28)] bg-[rgba(255,237,213,0.92)]"
+                ? "border-[var(--color-accent-border)] bg-[var(--color-accent-bg)]"
                 : analysisStatus === "done"
-                  ? "border-[rgba(22,101,52,0.16)] bg-[rgba(240,253,244,0.92)]"
-                  : "border-[var(--color-line)] bg-white/90"
+                  ? "border-[var(--color-success-border)] bg-[var(--color-success-bg)]"
+                  : "border-[var(--color-line)] bg-[var(--color-input-bg)]"
             }`}
           >
             <div className="flex items-center justify-between gap-3">
@@ -187,7 +187,7 @@ export function UrlForm({
                     ? "bg-[rgba(194,65,12,0.14)] text-[var(--color-accent)]"
                     : analysisStatus === "done"
                       ? "bg-[rgba(22,101,52,0.12)] text-[var(--color-success)]"
-                      : "bg-[rgba(15,23,42,0.06)] text-[var(--color-muted)]"
+                      : "bg-[var(--color-neutral-bg)] text-[var(--color-muted)]"
                 }`}
               >
                 {analysisStatus === "active" ? "진행 중" : analysisStatus === "done" ? "완료" : "대기"}
@@ -201,12 +201,12 @@ export function UrlForm({
           <div
             className={`rounded-[1.25rem] border px-4 py-4 ${
               writingStatus === "active"
-                ? "border-[rgba(37,99,235,0.22)] bg-[rgba(239,246,255,0.92)]"
+                ? "border-[var(--color-info-border)] bg-[var(--color-info-bg)]"
                 : writingStatus === "done"
-                  ? "border-[rgba(22,101,52,0.16)] bg-[rgba(240,253,244,0.92)]"
+                  ? "border-[var(--color-success-border)] bg-[var(--color-success-bg)]"
                   : writingStatus === "error"
-                    ? "border-[rgba(185,28,28,0.18)] bg-[rgba(254,242,242,0.95)]"
-                    : "border-[var(--color-line)] bg-white/90"
+                    ? "border-[var(--color-danger-border)] bg-[var(--color-danger-bg)]"
+                    : "border-[var(--color-line)] bg-[var(--color-input-bg)]"
             }`}
           >
             <div className="flex items-center justify-between gap-3">
@@ -214,12 +214,12 @@ export function UrlForm({
               <span
                 className={`rounded-full px-2.5 py-1 text-xs font-semibold ${
                   writingStatus === "active"
-                    ? "bg-[rgba(37,99,235,0.12)] text-[#1d4ed8]"
+                    ? "bg-[rgba(37,99,235,0.12)] text-[var(--color-info)]"
                     : writingStatus === "done"
                       ? "bg-[rgba(22,101,52,0.12)] text-[var(--color-success)]"
                       : writingStatus === "error"
-                        ? "bg-[rgba(185,28,28,0.12)] text-[#b91c1c]"
-                        : "bg-[rgba(15,23,42,0.06)] text-[var(--color-muted)]"
+                        ? "bg-[rgba(185,28,28,0.12)] text-[var(--color-danger)]"
+                        : "bg-[var(--color-neutral-bg)] text-[var(--color-muted)]"
                 }`}
               >
                 {writingStatus === "active"
@@ -238,14 +238,14 @@ export function UrlForm({
         </div>
 
         {errorDetails ? (
-          <div className="rounded-[1.25rem] border border-[rgba(185,28,28,0.18)] bg-[rgba(254,242,242,0.95)] p-4">
+          <div className="rounded-[1.25rem] border border-[var(--color-danger-border)] bg-[var(--color-danger-bg)] p-4">
             <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
-              <p className="text-sm font-semibold text-[#991b1b]">오류 상세</p>
-              <span className="rounded-full bg-[rgba(185,28,28,0.08)] px-2.5 py-1 font-mono text-xs text-[#991b1b]">
+              <p className="text-sm font-semibold text-[var(--color-danger)]">오류 상세</p>
+              <span className="rounded-full bg-[rgba(185,28,28,0.08)] px-2.5 py-1 font-mono text-xs text-[var(--color-danger)]">
                 {errorDetails.code}
               </span>
             </div>
-            <div className="mt-3 grid gap-2 text-sm leading-6 text-[#7f1d1d]">
+            <div className="mt-3 grid gap-2 text-sm leading-6 text-[var(--color-danger-soft)]">
               <p>
                 <span className="font-semibold">실패 위치:</span> {errorDetails.source}
               </p>
@@ -265,11 +265,11 @@ export function UrlForm({
                 </p>
               ) : null}
               {errorDetails.traceId ? (
-                <p className="font-mono text-xs text-[#991b1b]">
+                <p className="font-mono text-xs text-[var(--color-danger)]">
                   trace: {errorDetails.traceId}
                 </p>
               ) : null}
-              <p className="text-xs text-[#991b1b]">
+              <p className="text-xs text-[var(--color-danger)]">
                 개발 서버 터미널에서 같은 trace id로 서버 로그를 확인할 수 있습니다.
               </p>
             </div>

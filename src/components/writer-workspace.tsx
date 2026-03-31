@@ -4,6 +4,7 @@ import { useState } from "react";
 
 import { AnalysisPanel } from "@/components/analysis-panel";
 import { DraftPanel } from "@/components/draft-panel";
+import { ThemeToggle } from "@/components/theme-toggle";
 import { UrlForm, type ProcessingStage } from "@/components/url-form";
 import type {
   AppErrorPayload,
@@ -116,6 +117,10 @@ export function WriterWorkspace() {
 
   return (
     <div className="grid gap-6">
+      <div className="flex justify-end">
+        <ThemeToggle />
+      </div>
+
       <UrlForm
         url={url}
         tone={tone}

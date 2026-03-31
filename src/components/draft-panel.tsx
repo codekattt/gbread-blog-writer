@@ -10,7 +10,7 @@ export function DraftPanel({ draft }: DraftPanelProps) {
     return (
       <section className="section-card p-5 sm:p-6">
         <p className="panel-title">Draft</p>
-        <div className="mt-4 rounded-[1.5rem] border border-dashed border-[var(--color-line)] bg-white/60 p-6 text-sm leading-6 text-[var(--color-muted)]">
+        <div className="mt-4 rounded-[1.5rem] border border-dashed border-[var(--color-line)] bg-[var(--color-input-bg)] p-6 text-sm leading-6 text-[var(--color-muted)]">
           생성된 블로그 초안이 아직 없습니다. 분석이 끝나면 복붙하기 쉬운 게시글 초안,
           제목 후보, 해시태그가 이곳에 표시됩니다.
         </div>
@@ -30,8 +30,8 @@ export function DraftPanel({ draft }: DraftPanelProps) {
         <CopyButton value={draft.plainText} />
       </div>
 
-      <article className="mt-6 rounded-[1.75rem] border border-[var(--color-line)] bg-white p-5 shadow-[0_18px_36px_rgba(120,53,15,0.06)] sm:p-7">
-        <div className="flex flex-col gap-3 border-b border-[rgba(31,41,55,0.08)] pb-6">
+      <article className="mt-6 rounded-[1.75rem] border border-[var(--color-line)] bg-[var(--color-elevated)] p-5 shadow-[var(--color-shadow)] sm:p-7">
+        <div className="flex flex-col gap-3 border-b border-[var(--color-neutral-border)] pb-6">
           <p className="text-xs uppercase tracking-[0.22em] text-[var(--color-muted)]">Post Draft</p>
           <h3 className="text-[2rem] font-semibold leading-[1.3] tracking-tight text-[var(--color-ink)] sm:text-[2.25rem]">
             {draft.selectedTitle}
@@ -58,7 +58,7 @@ export function DraftPanel({ draft }: DraftPanelProps) {
             </section>
           ))}
 
-          <section className="space-y-4 border-t border-[rgba(31,41,55,0.08)] pt-6">
+          <section className="space-y-4 border-t border-[var(--color-neutral-border)] pt-6">
             <h4 className="text-[1.2rem] font-semibold leading-8 text-[var(--color-ink)]">
               {draft.closingHeading}
             </h4>
@@ -74,24 +74,24 @@ export function DraftPanel({ draft }: DraftPanelProps) {
       </article>
 
       <div className="mt-4 grid gap-4 lg:grid-cols-[1fr_0.75fr]">
-        <article className="rounded-[1.5rem] border border-[var(--color-line)] bg-white p-5">
+        <article className="rounded-[1.5rem] border border-[var(--color-line)] bg-[var(--color-elevated)] p-5">
           <p className="text-xs uppercase tracking-[0.22em] text-[var(--color-muted)]">Title Options</p>
           <ol className="mt-4 space-y-3 text-sm leading-7 text-[var(--color-ink)]">
             {draft.titleOptions.map((title, index) => (
-              <li key={title} className="rounded-[1rem] bg-[rgba(255,247,237,0.84)] px-4 py-3">
+              <li key={title} className="rounded-[1rem] bg-[var(--color-elevated-soft)] px-4 py-3">
                 {index + 1}. {title}
               </li>
             ))}
           </ol>
         </article>
 
-        <article className="rounded-[1.5rem] border border-[var(--color-line)] bg-white p-5">
+        <article className="rounded-[1.5rem] border border-[var(--color-line)] bg-[var(--color-elevated)] p-5">
           <p className="text-xs uppercase tracking-[0.22em] text-[var(--color-muted)]">Hashtags</p>
           <div className="mt-4 flex flex-wrap gap-2">
             {draft.hashtags.map((tag) => (
               <span
                 key={tag}
-                className="rounded-full border border-[rgba(22,101,52,0.14)] bg-[rgba(240,253,244,0.88)] px-3 py-1.5 text-xs font-medium text-[var(--color-success)]"
+                className="rounded-full border border-[var(--color-success-border)] bg-[var(--color-success-bg)] px-3 py-1.5 text-xs font-medium text-[var(--color-success)]"
               >
                 {tag}
               </span>
