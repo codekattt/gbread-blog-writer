@@ -17,7 +17,39 @@ GEMINI_API_KEY=your_gemini_api_key
 GEMINI_MODEL=gemini-2.5-flash
 ```
 
+고화질 영상 캡처까지 쓰려면 아래 값도 함께 넣는다.
+
+```env
+CAPTURE_WORKER_URL=http://127.0.0.1:4100
+CAPTURE_WORKER_TOKEN=your_capture_worker_token
+```
+
 브라우저에서 `http://localhost:3000`으로 접속한 뒤 유튜브 링크를 입력하면 된다.
+
+## 고화질 캡처 워커
+
+Vercel 앱 안에서 바로 영상 프레임을 고화질로 뽑는 데에는 한계가 있다.  
+그래서 캡처는 별도 워커로 분리했고, 앱은 `/api/capture`에서 그 워커를 프록시한다.
+
+- 워커가 연결되어 있으면: `yt-dlp + ffmpeg`로 실제 영상 프레임 추출
+- 워커가 없으면: 기존 로컬 fallback 캡처 사용
+
+로컬에서 워커를 띄우는 가장 간단한 방법:
+
+```bash
+npm run capture:worker
+```
+
+단, 이 방식은 로컬 환경에 `yt-dlp`, `ffmpeg`가 설치되어 있어야 한다.
+
+Docker로 띄우려면:
+
+```bash
+docker build -t gbread-capture-worker ./capture-worker
+docker run --rm -p 4100:4100 -e CAPTURE_WORKER_TOKEN=change-me gbread-capture-worker
+```
+
+자세한 설정은 [capture-worker/README.md](/Users/codekattt/Desktop/frontend/gbread/blog-writer/capture-worker/README.md)를 보면 된다.
 
 ## 목표
 

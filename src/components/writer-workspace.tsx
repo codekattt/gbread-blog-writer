@@ -3,9 +3,11 @@
 import { useState } from "react";
 
 import { AnalysisPanel } from "@/components/analysis-panel";
+import { CapturePanel } from "@/components/capture-panel";
 import { DraftPanel } from "@/components/draft-panel";
 import { ThemeToggle } from "@/components/theme-toggle";
 import { UrlForm, type ProcessingStage } from "@/components/url-form";
+import { requestJson, RequestError } from "@/lib/client/request-json";
 import type {
   AppErrorPayload,
   AnalyzeResponse,
@@ -14,49 +16,7 @@ import type {
   DraftWriteResponse,
 } from "@/types";
 
-class RequestError extends Error {
-  payload: AppErrorPayload;
-
-  constructor(payload: AppErrorPayload) {
-    super(payload.error);
-    this.name = "RequestError";
-    this.payload = payload;
-  }
-}
-
-async function requestJson<T>(url: string, payload: unknown): Promise<T> {
-  const response = await fetch(url, {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-    },
-    body: JSON.stringify(payload),
-  });
-
-  const contentType = response.headers.get("content-type") || "";
-  const data = contentType.includes("application/json")
-    ? ((await response.json()) as T | AppErrorPayload)
-    : ({
-        error: await response.text(),
-        source: "client",
-        code: "NON_JSON_RESPONSE",
-      } satisfies AppErrorPayload);
-
-  if (!response.ok) {
-    if (typeof data === "object" && data && "error" in data) {
-      throw new RequestError(data);
-    }
-
-    throw new RequestError({
-      error: "요청 처리 중 오류가 발생했습니다.",
-      source: "client",
-      code: "UNKNOWN_REQUEST_ERROR",
-      status: response.status,
-    });
-  }
-
-  return data as T;
-}
+type WorkspaceTab = "draft" | "capture";
 
 export function WriterWorkspace() {
   const [url, setUrl] = useState("");
@@ -68,6 +28,7 @@ export function WriterWorkspace() {
   const [error, setError] = useState<string | null>(null);
   const [errorDetails, setErrorDetails] = useState<AppErrorPayload | null>(null);
   const [stage, setStage] = useState<ProcessingStage>("idle");
+  const [activeTab, setActiveTab] = useState<WorkspaceTab>("draft");
 
   const isPending = stage === "analyzing" || stage === "writing";
 
@@ -137,9 +98,44 @@ export function WriterWorkspace() {
         onSubmit={handleSubmit}
       />
 
-      <div className="grid gap-6">
-        <AnalysisPanel analysis={analysisResult} />
-        <DraftPanel draft={draftResult} />
+      <div className="grid gap-4">
+        <div className="inline-flex w-full max-w-md rounded-full border border-[var(--color-line)] bg-[var(--color-panel)] p-1.5 shadow-[var(--color-shadow)]">
+          {(
+            [
+              { id: "draft", label: "초안 생성" },
+              { id: "capture", label: "영상 캡처" },
+            ] as const
+          ).map((tab) => {
+            const selected = activeTab === tab.id;
+
+            return (
+              <button
+                key={tab.id}
+                type="button"
+                onClick={() => setActiveTab(tab.id)}
+                className={`flex-1 rounded-full px-4 py-2.5 text-sm font-semibold ${
+                  selected
+                    ? "bg-[var(--color-panel-strong)] text-[var(--color-panel-strong-ink)]"
+                    : "text-[var(--color-muted)] hover:bg-[var(--color-elevated-soft)] hover:text-[var(--color-ink)]"
+                }`}
+              >
+                {tab.label}
+              </button>
+            );
+          })}
+        </div>
+
+        {activeTab === "draft" ? (
+          <div className="grid gap-6">
+            <AnalysisPanel analysis={analysisResult} />
+            <DraftPanel draft={draftResult} />
+          </div>
+        ) : (
+          <CapturePanel
+            key={analysisResult?.video.videoId ?? "capture-empty"}
+            analysis={analysisResult}
+          />
+        )}
       </div>
     </div>
   );

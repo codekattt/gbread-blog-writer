@@ -14,7 +14,7 @@ export const analysisSchema = z.object({
   recommendedOutline: z.array(z.string().min(1)).min(3).max(7),
   toneHints: z.array(z.string().min(1)).min(2).max(5),
   keywords: z.array(z.string().min(1)).min(4).max(12),
-  sceneMoments: z.array(sceneMomentSchema).min(2).max(5),
+  sceneMoments: z.array(sceneMomentSchema).min(6).max(12),
 });
 
 export const analysisResponseJsonSchema = {
@@ -49,8 +49,8 @@ export const analysisResponseJsonSchema = {
     },
     sceneMoments: {
       type: "array",
-      minItems: 2,
-      maxItems: 5,
+      minItems: 6,
+      maxItems: 12,
       items: {
         type: "object",
         properties: {

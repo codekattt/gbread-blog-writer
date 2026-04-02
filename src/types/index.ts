@@ -1,9 +1,17 @@
 import type { Analysis } from "@/lib/schemas/analysis";
+import type { CaptureItem, CaptureResponse } from "@/lib/schemas/capture";
 import type { AppErrorPayload } from "@/lib/errors/app-error";
 import type { DraftBody, DraftLengthOption, DraftToneOption } from "@/lib/schemas/draft";
 import type { YoutubeMetadata } from "@/lib/youtube/types";
 
-export type { Analysis, AppErrorPayload, DraftLengthOption, DraftToneOption, YoutubeMetadata };
+export type {
+  Analysis,
+  AppErrorPayload,
+  CaptureItem,
+  DraftLengthOption,
+  DraftToneOption,
+  YoutubeMetadata,
+};
 
 export type AnalysisResult = {
   video: YoutubeMetadata;
@@ -24,3 +32,4 @@ export type DraftResult = DraftBody & {
 };
 
 export type DraftWriteResponse = DraftResult;
+export type CaptureGenerateResponse = CaptureResponse;

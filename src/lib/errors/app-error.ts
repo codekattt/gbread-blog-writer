@@ -3,6 +3,7 @@ export type ErrorSource =
   | "client"
   | "youtube_metadata"
   | "youtube_transcript"
+  | "youtube_capture"
   | "gemini"
   | "unknown";
 
