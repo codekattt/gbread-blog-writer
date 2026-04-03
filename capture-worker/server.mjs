@@ -319,7 +319,117 @@ async function createBrowser() {
   });
 }
 
-async function createCapturePage(videoId) {
+async function clickIfVisible(page, selector) {
+  const locator = page.locator(selector).first();
+  const count = await locator.count().catch(() => 0);
+
+  if (count === 0) {
+    return false;
+  }
+
+  const isVisible = await locator.isVisible().catch(() => false);
+  if (!isVisible) {
+    return false;
+  }
+
+  await locator.click({ timeout: 3000 }).catch(() => {});
+  await page.waitForTimeout(700);
+  return true;
+}
+
+async function dismissYoutubeInterferences(page) {
+  const selectors = [
+    'button:has-text("모두 수락")',
+    'button:has-text("동의하고 계속")',
+    'button:has-text("Accept all")',
+    'button:has-text("I agree")',
+    'button:has-text("Agree")',
+    'button:has-text("나중에")',
+    'button:has-text("Not now")',
+    'button:has-text("No thanks")',
+  ];
+
+  for (const selector of selectors) {
+    const clicked = await clickIfVisible(page, selector);
+    if (clicked) {
+      await page.waitForTimeout(1000);
+    }
+  }
+}
+
+async function waitForVideoReady(page, video) {
+  await video.waitFor({
+    state: "visible",
+    timeout: 12_000,
+  });
+
+  await page.waitForFunction(() => {
+    const videoElement = document.querySelector("video");
+    return Boolean(videoElement && videoElement.readyState >= 2);
+  }, {
+    timeout: 12_000,
+  });
+}
+
+async function openYoutubePlaybackPage(page, videoId, canonicalUrl) {
+  const candidates = [
+    canonicalUrl,
+    `https://www.youtube-nocookie.com/embed/${videoId}?autoplay=1&mute=1&controls=0&playsinline=1&rel=0&enablejsapi=1`,
+    `https://www.youtube.com/embed/${videoId}?autoplay=1&mute=1&controls=0&playsinline=1&rel=0&enablejsapi=1`,
+  ];
+  const attempts = [];
+
+  for (const candidateUrl of candidates) {
+    try {
+      await page.goto(candidateUrl, {
+        waitUntil: "domcontentloaded",
+        timeout: 30_000,
+      });
+
+      await page.waitForTimeout(1500);
+      await dismissYoutubeInterferences(page);
+
+      const bodyText = await page.locator("body").innerText().catch(() => "");
+      const compactBody = bodyText.replace(/\s+/g, " ").trim().slice(0, 280);
+
+      if (/confirm you.?re not a bot/i.test(bodyText) || /sign in to confirm/i.test(bodyText)) {
+        attempts.push(`${candidateUrl} -> bot_check: ${compactBody}`);
+        continue;
+      }
+
+      if (/video unavailable/i.test(bodyText) || /watch on youtube/i.test(bodyText)) {
+        attempts.push(`${candidateUrl} -> unavailable: ${compactBody}`);
+        continue;
+      }
+
+      const video = page.locator("video.html5-main-video, video").first();
+      const count = await video.count().catch(() => 0);
+
+      if (count === 0) {
+        attempts.push(`${candidateUrl} -> no_video_tag: ${compactBody}`);
+        continue;
+      }
+
+      await waitForVideoReady(page, video);
+      return { video, sourceUrl: candidateUrl };
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      const bodyText = await page.locator("body").innerText().catch(() => "");
+      const compactBody = bodyText.replace(/\s+/g, " ").trim().slice(0, 280);
+      attempts.push(`${candidateUrl} -> ${message}: ${compactBody}`);
+    }
+  }
+
+  throw new WorkerError({
+    message: "브라우저에서 유튜브 video 요소를 찾지 못했습니다.",
+    code: "YOUTUBE_VIDEO_ELEMENT_MISSING",
+    status: 500,
+    hint: "임베드 제한, 봇 확인, 국가 제한 또는 동의 화면 때문에 재생 페이지가 열리지 않았을 수 있습니다.",
+    details: attempts.join(" | ").slice(0, 1500),
+  });
+}
+
+async function createCapturePage(videoId, canonicalUrl) {
   const browser = await createBrowser();
   const context = await browser.newContext({
     viewport: {
@@ -340,61 +450,7 @@ async function createCapturePage(videoId) {
   }
 
   const page = await context.newPage();
-  const embedUrl = `https://www.youtube.com/embed/${videoId}?autoplay=1&mute=1&controls=0&playsinline=1&rel=0&enablejsapi=1`;
-
-  await page.goto(embedUrl, {
-    waitUntil: "domcontentloaded",
-    timeout: 60_000,
-  });
-
-  await page.waitForLoadState("networkidle", {
-    timeout: 15_000,
-  }).catch(() => {});
-
-  const bodyText = await page.locator("body").innerText().catch(() => "");
-
-  if (/confirm you.?re not a bot/i.test(bodyText) || /sign in to confirm/i.test(bodyText)) {
-    throw new WorkerError({
-      message: "유튜브가 브라우저 세션에도 봇 확인을 요구했습니다.",
-      code: "YOUTUBE_BROWSER_BOT_CHECK",
-      status: 500,
-      hint: "로그인 세션 쿠키를 주입하거나, PLAYWRIGHT_WS_ENDPOINT로 외부 브라우저 세션을 연결해보세요.",
-      details: embedUrl,
-    });
-  }
-
-  const video = page.locator("video");
-
-  try {
-    await video.waitFor({
-      state: "visible",
-      timeout: 45_000,
-    });
-  } catch (error) {
-    throw new WorkerError({
-      message: "브라우저에서 유튜브 video 요소를 찾지 못했습니다.",
-      code: "YOUTUBE_VIDEO_ELEMENT_MISSING",
-      status: 500,
-      hint: "연령 제한, 국가 제한, 임베드 제한 영상인지 확인해주세요.",
-      details: embedUrl,
-      cause: error,
-    });
-  }
-
-  await page.waitForFunction(() => {
-    const videoElement = document.querySelector("video");
-    return Boolean(videoElement && videoElement.readyState >= 2);
-  }, {
-    timeout: 30_000,
-  }).catch((error) => {
-    throw new WorkerError({
-      message: "유튜브 영상 프레임 로드를 기다리는 중 실패했습니다.",
-      code: "YOUTUBE_VIDEO_READY_TIMEOUT",
-      status: 500,
-      details: embedUrl,
-      cause: error,
-    });
-  });
+  const { video, sourceUrl } = await openYoutubePlaybackPage(page, videoId, canonicalUrl);
 
   await video.evaluate(async (element) => {
     const videoElement = element;
@@ -410,7 +466,7 @@ async function createCapturePage(videoId) {
     videoElement.pause();
   });
 
-  return { browser, context, page, video };
+  return { browser, context, page, video, sourceUrl };
 }
 
 async function seekVideo(page, targetSeconds, durationSeconds) {
@@ -496,7 +552,10 @@ async function generateCaptures(payload) {
     avoidIntroOutro: payload.options.avoidIntroOutro,
   });
 
-  const { browser, context, page, video } = await createCapturePage(payload.video.videoId);
+  const { browser, context, page, video } = await createCapturePage(
+    payload.video.videoId,
+    payload.video.canonicalUrl,
+  );
 
   try {
     const captures = [];

@@ -43,6 +43,7 @@ async function forwardCaptureRequestToWorker(rawBody: string) {
       },
       body: rawBody,
       cache: "no-store",
+      signal: AbortSignal.timeout(30_000),
     });
 
     const contentType = response.headers.get("content-type") || "application/json";
@@ -56,6 +57,21 @@ async function forwardCaptureRequestToWorker(rawBody: string) {
       },
     });
   } catch (error) {
+    if (
+      error instanceof Error &&
+      (error.name === "AbortError" || error.name === "TimeoutError")
+    ) {
+      throw new AppError({
+        message: "캡처 워커 응답이 너무 오래 걸려 중단했습니다.",
+        source: "youtube_capture",
+        code: "CAPTURE_WORKER_TIMEOUT",
+        status: 504,
+        hint: "워커가 잠자기 상태이거나 유튜브 페이지 로딩이 지연되고 있습니다. 잠시 후 다시 시도해주세요.",
+        details: endpoint,
+        cause: error,
+      });
+    }
+
     throw new AppError({
       message: "고화질 캡처 워커에 연결하지 못했습니다.",
       source: "youtube_capture",
