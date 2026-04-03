@@ -1,13 +1,14 @@
-import { spawn } from "node:child_process";
 import { createServer } from "node:http";
-import { mkdtemp, readdir, rm } from "node:fs/promises";
-import { tmpdir } from "node:os";
-import { join } from "node:path";
+
+import { chromium } from "playwright";
 
 const PORT = Number(process.env.PORT || 4100);
 const WORKER_TOKEN = process.env.CAPTURE_WORKER_TOKEN?.trim() || "";
-const YT_DLP_PATH = process.env.YT_DLP_PATH || "yt-dlp";
-const FFMPEG_PATH = process.env.FFMPEG_PATH || "ffmpeg";
+const PLAYWRIGHT_WS_ENDPOINT = process.env.PLAYWRIGHT_WS_ENDPOINT?.trim() || "";
+const PLAYWRIGHT_HEADLESS = process.env.PLAYWRIGHT_HEADLESS !== "false";
+const PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH =
+  process.env.PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH?.trim() || undefined;
+const YOUTUBE_COOKIES_JSON_B64 = process.env.YOUTUBE_COOKIES_JSON_B64?.trim() || "";
 
 class WorkerError extends Error {
   constructor({ message, code, status = 400, hint, details, cause }) {
@@ -59,6 +60,31 @@ function sanitizeFilenamePart(value) {
     .replace(/[^a-z0-9가-힣]+/g, "-")
     .replace(/^-+|-+$/g, "")
     .slice(0, 40);
+}
+
+function decodeInjectedCookies() {
+  if (!YOUTUBE_COOKIES_JSON_B64) {
+    return [];
+  }
+
+  try {
+    const decoded = Buffer.from(YOUTUBE_COOKIES_JSON_B64, "base64").toString("utf8");
+    const parsed = JSON.parse(decoded);
+
+    if (!Array.isArray(parsed)) {
+      throw new Error("cookies payload is not an array");
+    }
+
+    return parsed.filter((cookie) => isObject(cookie));
+  } catch (error) {
+    throw new WorkerError({
+      message: "YOUTUBE_COOKIES_JSON_B64 값을 해석하지 못했습니다.",
+      code: "INVALID_YOUTUBE_COOKIES",
+      status: 500,
+      hint: "base64 인코딩된 Playwright cookies JSON 배열인지 확인해주세요.",
+      cause: error,
+    });
+  }
 }
 
 function readJsonBody(request) {
@@ -159,7 +185,11 @@ function parseCapturePayload(payload) {
       });
     }
 
-    if (!isNonEmptyString(moment.label) || !isNonEmptyString(moment.reason) || !isNonNegativeInteger(moment.startSeconds)) {
+    if (
+      !isNonEmptyString(moment.label) ||
+      !isNonEmptyString(moment.reason) ||
+      !isNonNegativeInteger(moment.startSeconds)
+    ) {
       throw new WorkerError({
         message: `sceneMoments[${index}] 값이 올바르지 않습니다.`,
         code: "CAPTURE_SCENE_MOMENT_INVALID",
@@ -183,7 +213,10 @@ function parseCapturePayload(payload) {
   }
 
   const count = isObject(options) && isNonNegativeInteger(options.count) ? options.count : 8;
-  const avoidIntroOutro = isObject(options) && typeof options.avoidIntroOutro === "boolean" ? options.avoidIntroOutro : true;
+  const avoidIntroOutro =
+    isObject(options) && typeof options.avoidIntroOutro === "boolean"
+      ? options.avoidIntroOutro
+      : true;
 
   if (count < 4 || count > 12) {
     throw new WorkerError({
@@ -265,149 +298,194 @@ function clampSceneMoments({ moments, durationSeconds, count, avoidIntroOutro })
     .slice(0, count);
 }
 
-function commandNotFoundHint(command) {
-  if (command === YT_DLP_PATH) {
-    return "워커 환경에 yt-dlp가 설치되어 있는지 확인해주세요.";
+async function createBrowser() {
+  if (PLAYWRIGHT_WS_ENDPOINT) {
+    return chromium.connect(PLAYWRIGHT_WS_ENDPOINT, {
+      timeout: 30_000,
+    });
   }
 
-  return "워커 환경에 ffmpeg가 설치되어 있는지 확인해주세요.";
-}
-
-function runCommand(command, args, { binaryStdout = false, cwd } = {}) {
-  return new Promise((resolve, reject) => {
-    const child = spawn(command, args, {
-      cwd,
-      stdio: ["ignore", "pipe", "pipe"],
-    });
-
-    const stdoutChunks = [];
-    const stderrChunks = [];
-
-    child.stdout.on("data", (chunk) => {
-      stdoutChunks.push(chunk);
-    });
-
-    child.stderr.on("data", (chunk) => {
-      stderrChunks.push(chunk);
-    });
-
-    child.on("error", (error) => {
-      reject(
-        new WorkerError({
-          message: `${command} 실행에 실패했습니다.`,
-          code: command === YT_DLP_PATH ? "YT_DLP_SPAWN_FAILED" : "FFMPEG_SPAWN_FAILED",
-          status: 500,
-          hint: commandNotFoundHint(command),
-          details: `command=${command}`,
-          cause: error,
-        }),
-      );
-    });
-
-    child.on("close", (code) => {
-      const stderr = Buffer.concat(stderrChunks).toString("utf8").trim();
-
-      if (code !== 0) {
-        reject(
-          new WorkerError({
-            message: `${command} 처리에 실패했습니다.`,
-            code: command === YT_DLP_PATH ? "YT_DLP_FAILED" : "FFMPEG_FAILED",
-            status: 500,
-            hint: command === YT_DLP_PATH ? "영상 다운로드에 실패했습니다. 연령 제한이나 접근 제한 영상일 수 있습니다." : "프레임 추출에 실패했습니다.",
-            details: stderr || `exitCode=${code}`,
-          }),
-        );
-        return;
-      }
-
-      resolve({
-        stdout: binaryStdout ? Buffer.concat(stdoutChunks) : Buffer.concat(stdoutChunks).toString("utf8"),
-        stderr,
-      });
-    });
+  return chromium.launch({
+    headless: PLAYWRIGHT_HEADLESS,
+    executablePath: PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH,
+    args: [
+      "--autoplay-policy=no-user-gesture-required",
+      "--disable-blink-features=AutomationControlled",
+      "--disable-dev-shm-usage",
+      "--disable-setuid-sandbox",
+      "--mute-audio",
+      "--no-sandbox",
+    ],
   });
 }
 
-async function downloadVideoToTempFile({ canonicalUrl, tempDir }) {
-  const outputTemplate = join(tempDir, "video.%(ext)s");
+async function createCapturePage(videoId) {
+  const browser = await createBrowser();
+  const context = await browser.newContext({
+    viewport: {
+      width: 1600,
+      height: 900,
+    },
+    deviceScaleFactor: 2,
+    locale: "ko-KR",
+    timezoneId: "Asia/Seoul",
+    colorScheme: "light",
+    userAgent:
+      "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0.0.0 Safari/537.36",
+  });
 
-  await runCommand(YT_DLP_PATH, [
-    "--no-playlist",
-    "--no-progress",
-    "--no-write-thumbnail",
-    "--no-write-info-json",
-    "--no-write-comments",
-    "--merge-output-format",
-    "mp4",
-    "-f",
-    "bv*[height<=1080]+ba/b[height<=1080]/b",
-    "-o",
-    outputTemplate,
-    canonicalUrl,
-  ]);
+  const injectedCookies = decodeInjectedCookies();
+  if (injectedCookies.length > 0) {
+    await context.addCookies(injectedCookies);
+  }
 
-  const entries = await readdir(tempDir);
-  const videoFilename = entries.find(
-    (entry) => entry.startsWith("video.") && !entry.endsWith(".part") && !entry.endsWith(".ytdl"),
-  );
+  const page = await context.newPage();
+  const embedUrl = `https://www.youtube.com/embed/${videoId}?autoplay=1&mute=1&controls=0&playsinline=1&rel=0&enablejsapi=1`;
 
-  if (!videoFilename) {
+  await page.goto(embedUrl, {
+    waitUntil: "domcontentloaded",
+    timeout: 60_000,
+  });
+
+  await page.waitForLoadState("networkidle", {
+    timeout: 15_000,
+  }).catch(() => {});
+
+  const bodyText = await page.locator("body").innerText().catch(() => "");
+
+  if (/confirm you.?re not a bot/i.test(bodyText) || /sign in to confirm/i.test(bodyText)) {
     throw new WorkerError({
-      message: "다운로드된 영상 파일을 찾지 못했습니다.",
-      code: "DOWNLOADED_VIDEO_MISSING",
+      message: "유튜브가 브라우저 세션에도 봇 확인을 요구했습니다.",
+      code: "YOUTUBE_BROWSER_BOT_CHECK",
       status: 500,
-      details: tempDir,
+      hint: "로그인 세션 쿠키를 주입하거나, PLAYWRIGHT_WS_ENDPOINT로 외부 브라우저 세션을 연결해보세요.",
+      details: embedUrl,
     });
   }
 
-  return join(tempDir, videoFilename);
+  const video = page.locator("video");
+
+  try {
+    await video.waitFor({
+      state: "visible",
+      timeout: 45_000,
+    });
+  } catch (error) {
+    throw new WorkerError({
+      message: "브라우저에서 유튜브 video 요소를 찾지 못했습니다.",
+      code: "YOUTUBE_VIDEO_ELEMENT_MISSING",
+      status: 500,
+      hint: "연령 제한, 국가 제한, 임베드 제한 영상인지 확인해주세요.",
+      details: embedUrl,
+      cause: error,
+    });
+  }
+
+  await page.waitForFunction(() => {
+    const videoElement = document.querySelector("video");
+    return Boolean(videoElement && videoElement.readyState >= 2);
+  }, {
+    timeout: 30_000,
+  }).catch((error) => {
+    throw new WorkerError({
+      message: "유튜브 영상 프레임 로드를 기다리는 중 실패했습니다.",
+      code: "YOUTUBE_VIDEO_READY_TIMEOUT",
+      status: 500,
+      details: embedUrl,
+      cause: error,
+    });
+  });
+
+  await video.evaluate(async (element) => {
+    const videoElement = element;
+    videoElement.muted = true;
+
+    try {
+      await videoElement.play();
+      await new Promise((resolve) => window.setTimeout(resolve, 1200));
+    } catch {
+      // autoplay can fail on some sessions; seek path below will still try to render the frame.
+    }
+
+    videoElement.pause();
+  });
+
+  return { browser, context, page, video };
 }
 
-async function extractCaptureFromVideo({
-  videoPath,
-  targetSeconds,
-  durationSeconds,
-}) {
-  const clipDuration = Math.max(4, Math.min(6, durationSeconds || 6));
-  const maxStart = Math.max(0, durationSeconds - clipDuration);
-  const clipStart = Math.max(0, Math.min(targetSeconds - 2, maxStart));
+async function seekVideo(page, targetSeconds, durationSeconds) {
+  const safeTargetSeconds =
+    durationSeconds > 0
+      ? Math.max(0, Math.min(targetSeconds, Math.max(durationSeconds - 1, 0)))
+      : Math.max(0, targetSeconds);
 
-  const { stdout } = await runCommand(
-    FFMPEG_PATH,
-    [
-      "-hide_banner",
-      "-loglevel",
-      "error",
-      "-ss",
-      clipStart.toString(),
-      "-t",
-      clipDuration.toString(),
-      "-i",
-      videoPath,
-      "-vf",
-      "thumbnail=18,scale=1280:-2:force_original_aspect_ratio=decrease",
-      "-frames:v",
-      "1",
-      "-q:v",
-      "2",
-      "-f",
-      "image2pipe",
-      "-vcodec",
-      "mjpeg",
-      "pipe:1",
-    ],
-    { binaryStdout: true },
-  );
+  await page.locator("video").evaluate(async (element, target) => {
+    const videoElement = element;
 
-  if (!stdout || stdout.length === 0) {
+    await new Promise((resolve, reject) => {
+      const cleanup = () => {
+        videoElement.removeEventListener("seeked", handleSeeked);
+        videoElement.removeEventListener("error", handleError);
+        window.clearTimeout(timeoutId);
+      };
+
+      const handleSeeked = () => {
+        cleanup();
+        videoElement.pause();
+        resolve();
+      };
+
+      const handleError = () => {
+        cleanup();
+        reject(new Error("video-seek-error"));
+      };
+
+      const timeoutId = window.setTimeout(() => {
+        cleanup();
+        videoElement.pause();
+        resolve();
+      }, 4000);
+
+      if (Math.abs(videoElement.currentTime - target) < 0.4) {
+        cleanup();
+        videoElement.pause();
+        resolve();
+        return;
+      }
+
+      videoElement.pause();
+      videoElement.addEventListener("seeked", handleSeeked, { once: true });
+      videoElement.addEventListener("error", handleError, { once: true });
+      videoElement.currentTime = target;
+    });
+  }, safeTargetSeconds).catch((error) => {
     throw new WorkerError({
-      message: "프레임 이미지를 생성하지 못했습니다.",
-      code: "CAPTURE_BUFFER_EMPTY",
+      message: "브라우저에서 영상 시점을 이동하지 못했습니다.",
+      code: "YOUTUBE_VIDEO_SEEK_FAILED",
+      status: 500,
+      details: `targetSeconds=${safeTargetSeconds}`,
+      cause: error,
+    });
+  });
+
+  await page.waitForTimeout(700);
+}
+
+async function captureVideoFrame(videoLocator) {
+  const imageBuffer = await videoLocator.screenshot({
+    type: "jpeg",
+    quality: 92,
+  });
+
+  if (!imageBuffer || imageBuffer.length === 0) {
+    throw new WorkerError({
+      message: "브라우저 캡처 이미지가 비어 있습니다.",
+      code: "BROWSER_CAPTURE_EMPTY",
       status: 500,
     });
   }
 
-  return stdout;
+  return imageBuffer;
 }
 
 async function generateCaptures(payload) {
@@ -418,23 +496,14 @@ async function generateCaptures(payload) {
     avoidIntroOutro: payload.options.avoidIntroOutro,
   });
 
-  const tempDir = await mkdtemp(join(tmpdir(), "gbread-capture-"));
+  const { browser, context, page, video } = await createCapturePage(payload.video.videoId);
 
   try {
-    const videoPath = await downloadVideoToTempFile({
-      canonicalUrl: payload.video.canonicalUrl,
-      tempDir,
-    });
-
     const captures = [];
 
     for (const [index, moment] of selectedMoments.entries()) {
-      const imageBuffer = await extractCaptureFromVideo({
-        videoPath,
-        targetSeconds: moment.startSeconds,
-        durationSeconds: payload.video.durationSeconds,
-      });
-
+      await seekVideo(page, moment.startSeconds, payload.video.durationSeconds);
+      const imageBuffer = await captureVideoFrame(video);
       const timestampLabel = formatTimestampLabel(moment.startSeconds);
       const safeLabel = sanitizeFilenamePart(moment.label) || `capture-${index + 1}`;
 
@@ -454,7 +523,9 @@ async function generateCaptures(payload) {
       captures,
     };
   } finally {
-    await rm(tempDir, { recursive: true, force: true });
+    await page.close().catch(() => {});
+    await context.close().catch(() => {});
+    await browser.close().catch(() => {});
   }
 }
 
@@ -472,7 +543,8 @@ function toErrorPayload(error, traceId) {
   }
 
   return {
-    error: error instanceof Error ? error.message : "캡처 워커에서 알 수 없는 오류가 발생했습니다.",
+    error:
+      error instanceof Error ? error.message : "캡처 워커에서 알 수 없는 오류가 발생했습니다.",
     source: "youtube_capture",
     code: "CAPTURE_WORKER_FAILED",
     status: 500,
@@ -494,6 +566,7 @@ const server = createServer(async (request, response) => {
     json(response, 200, {
       ok: true,
       service: "gbread-capture-worker",
+      mode: PLAYWRIGHT_WS_ENDPOINT ? "remote_browser" : "local_browser",
     });
     return;
   }
@@ -524,7 +597,11 @@ const server = createServer(async (request, response) => {
         details: error instanceof WorkerError ? error.details : undefined,
       });
 
-      json(response, error instanceof WorkerError ? error.status : 500, toErrorPayload(error, traceId));
+      json(
+        response,
+        error instanceof WorkerError ? error.status : 500,
+        toErrorPayload(error, traceId),
+      );
     }
 
     return;
