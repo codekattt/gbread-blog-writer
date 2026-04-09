@@ -24,6 +24,18 @@ CAPTURE_WORKER_URL=http://127.0.0.1:4100
 CAPTURE_WORKER_TOKEN=your_capture_worker_token
 ```
 
+배포 환경(Vercel/Render 등 데이터센터 IP)에서는 YouTube가 봇으로 분류해 메타데이터·자막·캡처가 모두 막힌다. 일회용 구글 계정으로 로그인 후 쿠키를 추출해 환경변수로 넣어주면 우회된다.
+
+```env
+# Vercel(메인 앱): 단일 라인 Cookie 헤더 문자열
+YOUTUBE_COOKIES_HEADER=VISITOR_INFO1_LIVE=...; LOGIN_INFO=...; SID=...; HSID=...; SSID=...; APISID=...; SAPISID=...; __Secure-1PSID=...; __Secure-3PSID=...; CONSENT=YES+...
+
+# Render(capture-worker): Playwright 호환 cookies JSON 배열을 base64로
+YOUTUBE_COOKIES_JSON_B64=BASE64_ENCODED_PLAYWRIGHT_COOKIES_JSON
+```
+
+쿠키는 Chrome 확장 "Cookie-Editor"로 logged-in `youtube.com` 도메인에서 추출한다. 본인 메인 계정 사용 금지(밴 리스크 격리). 세션 쿠키 만료 시 같은 절차로 갱신.
+
 브라우저에서 `http://localhost:3000`으로 접속한 뒤 유튜브 링크를 입력하면 된다.
 
 ## 고화질 캡처 워커

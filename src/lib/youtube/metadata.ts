@@ -1,6 +1,11 @@
 import { AppError } from "@/lib/errors/app-error";
 import { fetchJsonOrThrow, fetchTextOrThrow } from "@/lib/errors/http";
-import type { YoutubeMetadata } from "@/lib/youtube/types";
+import { withYoutubeCookies } from "@/lib/youtube/cookies";
+import type {
+  YoutubeCaptionTrack,
+  YoutubeMetadata,
+  YoutubeMetadataResult,
+} from "@/lib/youtube/types";
 
 const WATCH_PAGE_USER_AGENT =
   "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/123.0.0.0 Safari/537.36";
@@ -61,12 +66,12 @@ async function fetchWatchPage(url: string) {
     url,
     message: "유튜브 페이지 메타데이터를 가져오지 못했습니다.",
     hint: "해당 영상이 공개 상태인지, 네트워크에서 YouTube 접근이 가능한지 확인해주세요.",
-    init: {
+    init: withYoutubeCookies({
       headers: {
         "Accept-Language": "ko-KR,ko;q=0.9,en-US;q=0.8,en;q=0.7",
         "User-Agent": WATCH_PAGE_USER_AGENT,
       },
-    },
+    }),
   });
 }
 
@@ -81,16 +86,62 @@ async function fetchOEmbed(url: string) {
       url: `https://www.youtube.com/oembed?url=${encodeURIComponent(url)}&format=json`,
       message: "유튜브 oEmbed 메타데이터를 가져오지 못했습니다.",
       hint: "일부 영상은 oEmbed 제공이 제한될 수 있습니다.",
+      init: withYoutubeCookies(),
     });
   } catch {
     return null;
   }
 }
 
+function extractCaptionTracks(playerResponse: Record<string, unknown> | null): YoutubeCaptionTrack[] {
+  const captions = (playerResponse?.captions as
+    | { playerCaptionsTracklistRenderer?: { captionTracks?: unknown[] } }
+    | undefined);
+  const rawTracks = captions?.playerCaptionsTracklistRenderer?.captionTracks;
+
+  if (!Array.isArray(rawTracks)) {
+    return [];
+  }
+
+  const tracks: YoutubeCaptionTrack[] = [];
+
+  for (const rawTrack of rawTracks) {
+    if (typeof rawTrack !== "object" || rawTrack === null) {
+      continue;
+    }
+
+    const track = rawTrack as {
+      baseUrl?: unknown;
+      languageCode?: unknown;
+      kind?: unknown;
+      name?: { simpleText?: unknown; runs?: Array<{ text?: unknown }> };
+    };
+
+    if (typeof track.baseUrl !== "string" || typeof track.languageCode !== "string") {
+      continue;
+    }
+
+    const nameText =
+      (typeof track.name?.simpleText === "string" ? track.name.simpleText : null) ||
+      (Array.isArray(track.name?.runs)
+        ? track.name?.runs.map((run) => (typeof run.text === "string" ? run.text : "")).join("")
+        : null);
+
+    tracks.push({
+      baseUrl: track.baseUrl,
+      languageCode: track.languageCode,
+      kind: track.kind === "asr" ? "asr" : "standard",
+      name: nameText && nameText.length > 0 ? nameText : null,
+    });
+  }
+
+  return tracks;
+}
+
 export async function fetchYoutubeMetadata(
   videoId: string,
   canonicalUrl: string,
-): Promise<YoutubeMetadata> {
+): Promise<YoutubeMetadataResult> {
   const html = await fetchWatchPage(canonicalUrl);
   const playerResponse = parseInlineJson(html, "ytInitialPlayerResponse");
   const videoDetails = playerResponse?.videoDetails as
@@ -129,7 +180,7 @@ export async function fetchYoutubeMetadata(
   const totalMinutes = Math.floor(durationSeconds / 60);
   const remainingSeconds = durationSeconds % 60;
 
-  return {
+  const metadata: YoutubeMetadata = {
     videoId,
     canonicalUrl,
     title: videoDetails?.title || fallback?.title || "제목을 확인하지 못했습니다.",
@@ -143,5 +194,10 @@ export async function fetchYoutubeMetadata(
     keywords: videoDetails?.keywords || [],
     thumbnailUrl:
       videoDetails?.thumbnail?.thumbnails?.at(-1)?.url || fallback?.thumbnailUrl || null,
+  };
+
+  return {
+    metadata,
+    captionTracks: extractCaptionTracks(playerResponse),
   };
 }

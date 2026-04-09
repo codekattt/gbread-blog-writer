@@ -7,7 +7,7 @@ import { buildAnalyzePrompt } from "@/lib/prompts/analyze";
 import { analysisResponseJsonSchema, analysisSchema } from "@/lib/schemas/analysis";
 import { fetchYoutubeMetadata } from "@/lib/youtube/metadata";
 import { normalizeYoutubeInput } from "@/lib/youtube/normalize";
-import { fetchYoutubeTranscript } from "@/lib/youtube/transcript";
+import { fetchYoutubeTranscriptFromTracks } from "@/lib/youtube/transcript";
 
 const analyzeRequestSchema = z.object({
   url: z.string().min(1),
@@ -17,13 +17,16 @@ export async function POST(request: Request) {
   try {
     const body = analyzeRequestSchema.parse(await request.json());
     const normalized = normalizeYoutubeInput(body.url);
-    const video = await fetchYoutubeMetadata(normalized.videoId, normalized.canonicalUrl);
+    const { metadata: video, captionTracks } = await fetchYoutubeMetadata(
+      normalized.videoId,
+      normalized.canonicalUrl,
+    );
 
-    let transcript: Awaited<ReturnType<typeof fetchYoutubeTranscript>> | null = null;
+    let transcript: Awaited<ReturnType<typeof fetchYoutubeTranscriptFromTracks>> | null = null;
     let sourceMode: "transcript" | "youtube_video" = "transcript";
 
     try {
-      transcript = await fetchYoutubeTranscript(normalized.canonicalUrl);
+      transcript = await fetchYoutubeTranscriptFromTracks(captionTracks);
     } catch (error) {
       if (error instanceof AppError) {
         console.warn("[api/analyze] transcript fallback", {
