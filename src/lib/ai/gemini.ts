@@ -2,24 +2,14 @@ import { GoogleGenAI } from "@google/genai";
 
 import { AppError } from "@/lib/errors/app-error";
 
-const DEFAULT_MODEL = process.env.GEMINI_MODEL || "gemini-2.5-flash";
-
 const MODEL_FALLBACK_CHAIN: string[] = [
-  "gemini-3.1-pro-preview",
   "gemini-2.5-pro",
   "gemini-2.5-flash",
   "gemini-2.0-flash",
+  "gemini-1.5-flash",
 ];
 
 const RETRIES_PER_MODEL = 2;
-
-function buildFallbackChain(startModel: string): string[] {
-  const startIndex = MODEL_FALLBACK_CHAIN.indexOf(startModel);
-  const chain = startIndex === -1
-    ? [startModel, ...MODEL_FALLBACK_CHAIN]
-    : MODEL_FALLBACK_CHAIN.slice(startIndex);
-  return chain.slice(0, 4);
-}
 
 function getClient() {
   const apiKey = process.env.GEMINI_API_KEY || process.env.GOOGLE_API_KEY;
@@ -45,12 +35,22 @@ type GenerateStructuredContentResult<T> = {
   modelUsed: string;
 };
 
-function isRetryable(error: unknown): boolean {
+function getErrorStatus(error: unknown): number | undefined {
   if (typeof error === "object" && error !== null && "status" in error) {
-    const status = (error as { status?: number }).status;
-    return status === 503 || status === 429;
+    return (error as { status?: number }).status;
   }
-  return false;
+  return undefined;
+}
+
+// 503/429: 같은 모델 재시도
+function shouldRetry(error: unknown): boolean {
+  const status = getErrorStatus(error);
+  return status === 503 || status === 429;
+}
+
+// 404: 모델 자체가 없는 것 → 다음 모델로 넘어감 (재시도 없이)
+function shouldSkipModel(error: unknown): boolean {
+  return getErrorStatus(error) === 404;
 }
 
 function delay(ms: number) {
@@ -63,7 +63,6 @@ export async function generateStructuredContent<T>({
   schema,
   validate,
   temperature = 0.4,
-  model = DEFAULT_MODEL,
 }: GenerateStructuredContentParams<T>): Promise<GenerateStructuredContentResult<T>> {
   const client = getClient();
   const requestContents = contents ?? prompt;
@@ -73,15 +72,15 @@ export async function generateStructuredContent<T>({
       message: "Gemini에 전달할 입력이 비어 있습니다.",
       source: "gemini",
       code: "EMPTY_GEMINI_INPUT",
-      details: `model=${model}`,
     });
   }
 
-  const chain = buildFallbackChain(model);
   let lastError: unknown;
 
-  for (let modelIndex = 0; modelIndex < chain.length; modelIndex++) {
-    const currentModel = chain[modelIndex];
+  for (let modelIndex = 0; modelIndex < MODEL_FALLBACK_CHAIN.length; modelIndex++) {
+    const currentModel = MODEL_FALLBACK_CHAIN[modelIndex];
+
+    let skipModel = false;
 
     for (let retry = 0; retry < RETRIES_PER_MODEL; retry++) {
       if (modelIndex > 0 || retry > 0) {
@@ -128,35 +127,44 @@ export async function generateStructuredContent<T>({
       } catch (error) {
         lastError = error;
 
-        if (!isRetryable(error)) {
+        if (shouldSkipModel(error)) {
+          console.warn(`[gemini] ${currentModel} 404 (모델 없음) → 다음 모델로 전환`);
+          skipModel = true;
           break;
         }
 
-        const isLastRetry = retry === RETRIES_PER_MODEL - 1;
-        const isLastModel = modelIndex === chain.length - 1;
+        if (!shouldRetry(error)) {
+          // 400, 401 등 재시도 의미 없는 에러 → 전체 중단
+          throw new AppError({
+            message: "Gemini 호출 중 오류가 발생했습니다.",
+            source: "gemini",
+            code: "GEMINI_HTTP_ERROR",
+            status: getErrorStatus(error),
+            hint: getErrorStatus(error) === 429
+              ? "Gemini 요청이 일시적으로 제한됐습니다. 잠시 후 다시 시도해보세요."
+              : "API 키, 모델명, 네트워크 상태를 확인해주세요.",
+            details: `model=${currentModel}`,
+            cause: error,
+          });
+        }
 
-        if (isLastRetry && !isLastModel) {
-          console.warn(
-            `[gemini] ${currentModel} 503/429 (${RETRIES_PER_MODEL}회 시도) → ${chain[modelIndex + 1]} 로 전환`,
-          );
-        } else if (!isLastRetry) {
-          console.warn(
-            `[gemini] ${currentModel} 503/429 → 재시도 (${retry + 1}/${RETRIES_PER_MODEL})`,
-          );
+        const isLastRetry = retry === RETRIES_PER_MODEL - 1;
+        const isLastModel = modelIndex === MODEL_FALLBACK_CHAIN.length - 1;
+
+        if (!isLastRetry) {
+          console.warn(`[gemini] ${currentModel} 503/429 → 재시도 (${retry + 1}/${RETRIES_PER_MODEL})`);
+        } else if (!isLastModel) {
+          console.warn(`[gemini] ${currentModel} 503/429 (${RETRIES_PER_MODEL}회) → ${MODEL_FALLBACK_CHAIN[modelIndex + 1]} 로 전환`);
         }
       }
     }
 
-    if (!isRetryable(lastError)) {
+    if (!skipModel && !shouldRetry(lastError)) {
       break;
     }
   }
 
-  const status =
-    typeof lastError === "object" && lastError !== null && "status" in lastError
-      ? (lastError as { status?: number }).status
-      : undefined;
-
+  const status = getErrorStatus(lastError);
   throw new AppError({
     message: "Gemini 호출 중 오류가 발생했습니다.",
     source: "gemini",
@@ -164,11 +172,11 @@ export async function generateStructuredContent<T>({
     status,
     hint:
       status === 503
-        ? `모든 모델(${chain.join(" → ")})에서 503 오류가 발생했습니다. 잠시 후 다시 시도해주세요.`
+        ? `모든 모델(${MODEL_FALLBACK_CHAIN.join(" → ")})에서 503 오류가 발생했습니다. 잠시 후 다시 시도해주세요.`
         : status === 429
           ? "Gemini 요청이 일시적으로 제한됐습니다. 잠시 후 다시 시도해보세요."
-          : "API 키, 모델명, 네트워크 상태를 확인해주세요.",
-    details: `chain=${chain.join(" → ")}`,
+          : "API 키, 네트워크 상태를 확인해주세요.",
+    details: `chain=${MODEL_FALLBACK_CHAIN.join(" → ")}`,
     cause: lastError,
   });
 }
