@@ -5,9 +5,9 @@ import { AppError } from "@/lib/errors/app-error";
 const DEFAULT_MODEL = process.env.GEMINI_MODEL || "gemini-2.5-flash";
 
 const MODEL_FALLBACK_CHAIN: string[] = [
+  "gemini-3.1-pro-preview",
   "gemini-2.5-pro",
   "gemini-2.5-flash",
-  "gemini-2.0-flash",
 ];
 
 function buildFallbackChain(startModel: string): string[] {
