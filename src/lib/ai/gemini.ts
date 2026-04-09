@@ -8,14 +8,17 @@ const MODEL_FALLBACK_CHAIN: string[] = [
   "gemini-3.1-pro-preview",
   "gemini-2.5-pro",
   "gemini-2.5-flash",
+  "gemini-2.0-flash",
 ];
+
+const RETRIES_PER_MODEL = 2;
 
 function buildFallbackChain(startModel: string): string[] {
   const startIndex = MODEL_FALLBACK_CHAIN.indexOf(startModel);
   const chain = startIndex === -1
     ? [startModel, ...MODEL_FALLBACK_CHAIN]
     : MODEL_FALLBACK_CHAIN.slice(startIndex);
-  return chain.slice(0, 3);
+  return chain.slice(0, 4);
 }
 
 function getClient() {
@@ -42,7 +45,7 @@ type GenerateStructuredContentResult<T> = {
   modelUsed: string;
 };
 
-function isRetryableStatus(error: unknown): boolean {
+function isRetryable(error: unknown): boolean {
   if (typeof error === "object" && error !== null && "status" in error) {
     const status = (error as { status?: number }).status;
     return status === 503 || status === 429;
@@ -77,68 +80,81 @@ export async function generateStructuredContent<T>({
   const chain = buildFallbackChain(model);
   let lastError: unknown;
 
-  for (let attempt = 0; attempt < chain.length; attempt++) {
-    const currentModel = chain[attempt];
+  for (let modelIndex = 0; modelIndex < chain.length; modelIndex++) {
+    const currentModel = chain[modelIndex];
 
-    try {
-      if (attempt > 0) {
-        await delay(600);
+    for (let retry = 0; retry < RETRIES_PER_MODEL; retry++) {
+      if (modelIndex > 0 || retry > 0) {
+        await delay(700);
       }
 
-      const response = await client.models.generateContent({
-        model: currentModel,
-        contents: requestContents,
-        config: {
-          temperature,
-          responseMimeType: "application/json",
-          responseJsonSchema: schema,
-        },
-      });
-
-      if (!response.text) {
-        throw new AppError({
-          message: "Gemini 응답이 비어 있습니다.",
-          source: "gemini",
-          code: "EMPTY_GEMINI_RESPONSE",
-          details: `model=${currentModel}`,
-        });
-      }
-
-      let parsed: unknown;
       try {
-        parsed = JSON.parse(response.text) as unknown;
-      } catch (parseError) {
-        throw new AppError({
-          message: "Gemini JSON 응답을 해석하지 못했습니다.",
-          source: "gemini",
-          code: "INVALID_GEMINI_JSON",
-          details: `model=${currentModel}`,
-          cause: parseError,
+        const response = await client.models.generateContent({
+          model: currentModel,
+          contents: requestContents,
+          config: {
+            temperature,
+            responseMimeType: "application/json",
+            responseJsonSchema: schema,
+          },
         });
+
+        if (!response.text) {
+          throw new AppError({
+            message: "Gemini 응답이 비어 있습니다.",
+            source: "gemini",
+            code: "EMPTY_GEMINI_RESPONSE",
+            details: `model=${currentModel}`,
+          });
+        }
+
+        let parsed: unknown;
+        try {
+          parsed = JSON.parse(response.text) as unknown;
+        } catch (parseError) {
+          throw new AppError({
+            message: "Gemini JSON 응답을 해석하지 못했습니다.",
+            source: "gemini",
+            code: "INVALID_GEMINI_JSON",
+            details: `model=${currentModel}`,
+            cause: parseError,
+          });
+        }
+
+        return {
+          data: validate(parsed),
+          modelUsed: currentModel,
+        };
+      } catch (error) {
+        lastError = error;
+
+        if (!isRetryable(error)) {
+          break;
+        }
+
+        const isLastRetry = retry === RETRIES_PER_MODEL - 1;
+        const isLastModel = modelIndex === chain.length - 1;
+
+        if (isLastRetry && !isLastModel) {
+          console.warn(
+            `[gemini] ${currentModel} 503/429 (${RETRIES_PER_MODEL}회 시도) → ${chain[modelIndex + 1]} 로 전환`,
+          );
+        } else if (!isLastRetry) {
+          console.warn(
+            `[gemini] ${currentModel} 503/429 → 재시도 (${retry + 1}/${RETRIES_PER_MODEL})`,
+          );
+        }
       }
+    }
 
-      return {
-        data: validate(parsed),
-        modelUsed: currentModel,
-      };
-    } catch (error) {
-      lastError = error;
-      const retryable = isRetryableStatus(error);
-      const hasNext = attempt < chain.length - 1;
-
-      if (retryable && hasNext) {
-        console.warn(`[gemini] ${currentModel} 503/429 → ${chain[attempt + 1]} 로 전환 (시도 ${attempt + 1}/${chain.length})`);
-        continue;
-      }
-
+    if (!isRetryable(lastError)) {
       break;
     }
   }
 
-  const finalError = lastError;
   const status =
-    typeof finalError === "object" && finalError !== null && "status" in finalError
-      ? (finalError as { status?: number }).status
+    typeof lastError === "object" && lastError !== null && "status" in lastError
+      ? (lastError as { status?: number }).status
       : undefined;
 
   throw new AppError({
@@ -153,6 +169,6 @@ export async function generateStructuredContent<T>({
           ? "Gemini 요청이 일시적으로 제한됐습니다. 잠시 후 다시 시도해보세요."
           : "API 키, 모델명, 네트워크 상태를 확인해주세요.",
     details: `chain=${chain.join(" → ")}`,
-    cause: finalError,
+    cause: lastError,
   });
 }
