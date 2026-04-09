@@ -3,7 +3,6 @@
 import { useState } from "react";
 
 import { AnalysisPanel } from "@/components/analysis-panel";
-import { CapturePanel } from "@/components/capture-panel";
 import { DraftPanel } from "@/components/draft-panel";
 import { ThemeToggle } from "@/components/theme-toggle";
 import { UrlForm, type ProcessingStage } from "@/components/url-form";
@@ -16,8 +15,6 @@ import type {
   DraftWriteResponse,
 } from "@/types";
 
-type WorkspaceTab = "draft" | "capture";
-
 export function WriterWorkspace() {
   const [url, setUrl] = useState("");
   const [tone, setTone] = useState<DraftToneOption>("blogger");
@@ -28,8 +25,6 @@ export function WriterWorkspace() {
   const [error, setError] = useState<string | null>(null);
   const [errorDetails, setErrorDetails] = useState<AppErrorPayload | null>(null);
   const [stage, setStage] = useState<ProcessingStage>("idle");
-  const [activeTab, setActiveTab] = useState<WorkspaceTab>("draft");
-
   const isPending = stage === "analyzing" || stage === "writing";
 
   const handleSubmit = async () => {
@@ -98,44 +93,9 @@ export function WriterWorkspace() {
         onSubmit={handleSubmit}
       />
 
-      <div className="grid gap-4">
-        <div className="inline-flex w-full max-w-md rounded-full border border-[var(--color-line)] bg-[var(--color-panel)] p-1.5 shadow-[var(--color-shadow)]">
-          {(
-            [
-              { id: "draft", label: "초안 생성" },
-              { id: "capture", label: "영상 캡처" },
-            ] as const
-          ).map((tab) => {
-            const selected = activeTab === tab.id;
-
-            return (
-              <button
-                key={tab.id}
-                type="button"
-                onClick={() => setActiveTab(tab.id)}
-                className={`flex-1 rounded-full px-4 py-2.5 text-sm font-semibold ${
-                  selected
-                    ? "bg-[var(--color-panel-strong)] text-[var(--color-panel-strong-ink)]"
-                    : "text-[var(--color-muted)] hover:bg-[var(--color-elevated-soft)] hover:text-[var(--color-ink)]"
-                }`}
-              >
-                {tab.label}
-              </button>
-            );
-          })}
-        </div>
-
-        {activeTab === "draft" ? (
-          <div className="grid gap-6">
-            <AnalysisPanel analysis={analysisResult} />
-            <DraftPanel draft={draftResult} />
-          </div>
-        ) : (
-          <CapturePanel
-            key={analysisResult?.video.videoId ?? "capture-empty"}
-            analysis={analysisResult}
-          />
-        )}
+      <div className="grid gap-6">
+        <AnalysisPanel analysis={analysisResult} />
+        <DraftPanel draft={draftResult} />
       </div>
     </div>
   );
