@@ -61,7 +61,7 @@ export async function POST(request: Request) {
             },
           ];
 
-    const analysis = await generateStructuredContent({
+    const { data: analysis, modelUsed } = await generateStructuredContent({
       contents,
       schema: analysisResponseJsonSchema,
       validate: (value) => analysisSchema.parse(value),
@@ -76,6 +76,7 @@ export async function POST(request: Request) {
         characterCount: transcript?.text.length || 0,
         mode: sourceMode,
       },
+      modelUsed,
     });
   } catch (error) {
     const traceId = crypto.randomUUID();

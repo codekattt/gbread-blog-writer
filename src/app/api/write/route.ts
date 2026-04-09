@@ -9,7 +9,7 @@ import { draftResponseJsonSchema, draftSchema, writeRequestSchema } from "@/lib/
 export async function POST(request: Request) {
   try {
     const body = writeRequestSchema.parse(await request.json());
-    const draft = await generateStructuredContent({
+    const { data: draft, modelUsed } = await generateStructuredContent({
       prompt: buildWritePrompt({
         video: body.video,
         analysis: body.analysis,
@@ -30,6 +30,7 @@ export async function POST(request: Request) {
         ...draft,
         selectedTitle,
       }),
+      modelUsed,
     };
 
     return NextResponse.json(result);
