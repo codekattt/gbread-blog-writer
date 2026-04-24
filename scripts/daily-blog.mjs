@@ -1,5 +1,3 @@
-import { execSync } from "node:child_process";
-
 const KEYWORDS = [
   "저당빵 리뷰",
   "저당식품 추천",
@@ -12,9 +10,15 @@ const KEYWORDS = [
 
 const VERCEL_URL = process.env.VERCEL_APP_URL?.replace(/\/$/, "");
 const DISCORD_WEBHOOK = process.env.DISCORD_WEBHOOK_URL;
+const YOUTUBE_API_KEY = process.env.YOUTUBE_API_KEY;
 
 if (!VERCEL_URL || !DISCORD_WEBHOOK) {
   console.error("VERCEL_APP_URL 또는 DISCORD_WEBHOOK_URL 환경변수가 없습니다.");
+  process.exit(1);
+}
+
+if (!YOUTUBE_API_KEY) {
+  console.error("YOUTUBE_API_KEY 환경변수가 없습니다.");
   process.exit(1);
 }
 
@@ -23,20 +27,33 @@ const today = new Date();
 const keyword = KEYWORDS[today.getDate() % KEYWORDS.length];
 console.log(`[daily-blog] 오늘 키워드: "${keyword}"`);
 
-// yt-dlp로 유튜브 검색
+// YouTube Data API v3로 영상 검색
 let videoUrl;
 try {
-  videoUrl = execSync(
-    `yt-dlp "ytsearch1:${keyword}" --print webpage_url --no-download`,
-    { encoding: "utf8", timeout: 30_000 }
-  ).trim();
+  const searchUrl = new URL("https://www.googleapis.com/youtube/v3/search");
+  searchUrl.searchParams.set("part", "snippet");
+  searchUrl.searchParams.set("q", keyword);
+  searchUrl.searchParams.set("type", "video");
+  searchUrl.searchParams.set("maxResults", "1");
+  searchUrl.searchParams.set("order", "date");
+  searchUrl.searchParams.set("key", YOUTUBE_API_KEY);
+
+  const searchRes = await fetch(searchUrl.toString());
+  if (!searchRes.ok) {
+    const err = await searchRes.json().catch(() => ({}));
+    throw new Error(`YouTube API ${searchRes.status}: ${JSON.stringify(err)}`);
+  }
+
+  const searchData = await searchRes.json();
+  const videoId = searchData.items?.[0]?.id?.videoId;
+
+  if (!videoId) {
+    throw new Error("검색 결과가 없습니다.");
+  }
+
+  videoUrl = `https://www.youtube.com/watch?v=${videoId}`;
 } catch (error) {
   console.error("[daily-blog] YouTube 검색 실패:", error.message);
-  process.exit(1);
-}
-
-if (!videoUrl || !videoUrl.includes("youtube.com/watch")) {
-  console.error("[daily-blog] 유효한 영상 URL을 찾지 못했습니다:", videoUrl);
   process.exit(1);
 }
 
