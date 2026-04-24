@@ -1,0 +1,27 @@
+name: 매일 블로그 초안 생성
+
+on:
+  schedule:
+    - cron: '0 1 * * *' # 매일 오전 10시 KST (UTC 01:00)
+  workflow_dispatch: # 수동 실행 버튼
+
+jobs:
+  generate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: yt-dlp 설치
+        run: pip install yt-dlp
+
+      - name: 블로그 초안 생성 및 디코 전송
+        env:
+          VERCEL_APP_URL: ${{ secrets.VERCEL_APP_URL }}
+          DISCORD_WEBHOOK_URL: ${{ secrets.DISCORD_WEBHOOK_URL }}
+        run: node scripts/daily-blog.mjs
