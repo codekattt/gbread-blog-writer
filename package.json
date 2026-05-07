@@ -4,6 +4,7 @@
   "private": true,
   "scripts": {
     "dev": "next dev",
+    "daily:blog": "node scripts/daily-blog.mjs",
     "capture:worker": "npm --prefix capture-worker run start",
     "capture:worker:install": "npm --prefix capture-worker install",
     "build": "next build --webpack",

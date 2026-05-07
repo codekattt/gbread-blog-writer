@@ -2,8 +2,13 @@ name: 매일 블로그 초안 생성
 
 on:
   schedule:
-    - cron: '0 1 * * *' # 매일 오전 10시 KST (UTC 01:00)
+    - cron: '0 1 * * 1-5' # 평일 오전 10시 KST (UTC 01:00), 한국 공휴일은 스크립트에서 제외
   workflow_dispatch: # 수동 실행 버튼
+    inputs:
+      force_run:
+        description: '주말/공휴일 검사 무시하고 실행'
+        required: false
+        default: 'false'
 
 jobs:
   generate:
@@ -22,4 +27,6 @@ jobs:
           VERCEL_APP_URL: ${{ secrets.VERCEL_APP_URL }}
           DISCORD_WEBHOOK_URL: ${{ secrets.DISCORD_WEBHOOK_URL }}
           YOUTUBE_API_KEY: ${{ secrets.YOUTUBE_API_KEY }}
+          FORCE_RUN: ${{ github.event.inputs.force_run || secrets.FORCE_RUN || '0' }}
+          KOREA_HOLIDAY_FAIL_OPEN: ${{ secrets.KOREA_HOLIDAY_FAIL_OPEN || '0' }}
         run: node scripts/daily-blog.mjs
