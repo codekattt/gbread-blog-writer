@@ -1,12 +1,21 @@
-const KEYWORDS = [
-  "저당빵 리뷰",
-  "저당식품 추천",
-  "저당음식 다이어트",
+const SEARCH_QUERIES = [
   "그림의빵 리뷰",
-  "저당 디저트 추천",
-  "키토빵 추천",
-  "무설탕 빵 리뷰",
+  "그림의빵 혈당",
+  "그림의빵 저당빵",
+  "그림의빵 다이어트",
+  "그림의빵 크림빵",
+  "그림의빵 당뇨",
 ];
+const BRAND_PATTERN = /그림\s*의\s*빵/i;
+const MIN_VIDEO_SECONDS = Number(process.env.YOUTUBE_MIN_VIDEO_SECONDS || 180);
+const MAX_VIDEO_SECONDS = Number(process.env.YOUTUBE_MAX_VIDEO_SECONDS || 3600);
+const SEARCH_MAX_RESULTS = Math.min(Number(process.env.YOUTUBE_SEARCH_MAX_RESULTS || 10), 25);
+const EXCLUDED_VIDEO_IDS = new Set(
+  (process.env.YOUTUBE_EXCLUDE_VIDEO_IDS || "")
+    .split(",")
+    .map((videoId) => videoId.trim())
+    .filter(Boolean),
+);
 
 const VERCEL_URL = process.env.VERCEL_APP_URL?.replace(/\/$/, "");
 const DISCORD_WEBHOOK = process.env.DISCORD_WEBHOOK_URL;
@@ -126,6 +135,176 @@ function paragraphHtml(paragraph) {
   return `<p>${escapeHtml(paragraph).replace(/\n/g, "<br />")}</p>`;
 }
 
+async function fetchJsonOrThrow(url, source) {
+  const response = await fetch(url);
+  const data = await response.json().catch(async () => ({ raw: await response.text().catch(() => "") }));
+
+  if (!response.ok) {
+    throw new Error(`${source} ${response.status}: ${JSON.stringify(data)}`);
+  }
+
+  return data;
+}
+
+function parseIsoDurationToSeconds(duration) {
+  const match = /^PT(?:(\d+)H)?(?:(\d+)M)?(?:(\d+)S)?$/.exec(duration || "");
+
+  if (!match) {
+    return 0;
+  }
+
+  const [, hours = "0", minutes = "0", seconds = "0"] = match;
+  return Number(hours) * 3600 + Number(minutes) * 60 + Number(seconds);
+}
+
+function textContainsBrand(...values) {
+  return values.some((value) => BRAND_PATTERN.test(String(value || "")));
+}
+
+function scoreVideoCandidate(video) {
+  const title = video.snippet?.title || "";
+  const description = video.snippet?.description || "";
+  const tags = Array.isArray(video.snippet?.tags) ? video.snippet.tags.join(" ") : "";
+  const durationSeconds = parseIsoDurationToSeconds(video.contentDetails?.duration);
+  const viewCount = Number(video.statistics?.viewCount || 0);
+
+  let score = 0;
+  if (textContainsBrand(title)) score += 10;
+  if (textContainsBrand(description)) score += 6;
+  if (textContainsBrand(tags)) score += 4;
+  if (durationSeconds >= 300 && durationSeconds <= 1800) score += 3;
+  if (durationSeconds >= MIN_VIDEO_SECONDS && durationSeconds <= MAX_VIDEO_SECONDS) score += 2;
+  if (viewCount >= 10_000) score += 2;
+  if (viewCount >= 50_000) score += 1;
+
+  return score;
+}
+
+async function searchYoutubeVideoIds(query, order) {
+  const searchUrl = new URL("https://www.googleapis.com/youtube/v3/search");
+  searchUrl.searchParams.set("part", "snippet");
+  searchUrl.searchParams.set("q", query);
+  searchUrl.searchParams.set("type", "video");
+  searchUrl.searchParams.set("maxResults", String(SEARCH_MAX_RESULTS));
+  searchUrl.searchParams.set("order", order);
+  searchUrl.searchParams.set("regionCode", "KR");
+  searchUrl.searchParams.set("relevanceLanguage", "ko");
+  searchUrl.searchParams.set("safeSearch", "none");
+  searchUrl.searchParams.set("key", YOUTUBE_API_KEY);
+
+  const data = await fetchJsonOrThrow(searchUrl.toString(), "YouTube search API");
+  return (data.items || [])
+    .map((item) => item?.id?.videoId)
+    .filter((videoId) => typeof videoId === "string");
+}
+
+async function fetchYoutubeVideoDetails(videoIds) {
+  if (videoIds.length === 0) {
+    return [];
+  }
+
+  const detailsUrl = new URL("https://www.googleapis.com/youtube/v3/videos");
+  detailsUrl.searchParams.set("part", "snippet,contentDetails,statistics,status");
+  detailsUrl.searchParams.set("id", videoIds.join(","));
+  detailsUrl.searchParams.set("key", YOUTUBE_API_KEY);
+
+  const data = await fetchJsonOrThrow(detailsUrl.toString(), "YouTube videos API");
+  return Array.isArray(data.items) ? data.items : [];
+}
+
+function isUsableVideo(video) {
+  const videoId = video.id;
+  const title = video.snippet?.title || "";
+  const description = video.snippet?.description || "";
+  const tags = Array.isArray(video.snippet?.tags) ? video.snippet.tags.join(" ") : "";
+  const durationSeconds = parseIsoDurationToSeconds(video.contentDetails?.duration);
+
+  if (!videoId || EXCLUDED_VIDEO_IDS.has(videoId)) {
+    return false;
+  }
+
+  if (video.status?.privacyStatus && video.status.privacyStatus !== "public") {
+    return false;
+  }
+
+  if (!textContainsBrand(title, description, tags)) {
+    return false;
+  }
+
+  return durationSeconds >= MIN_VIDEO_SECONDS && durationSeconds <= MAX_VIDEO_SECONDS;
+}
+
+async function pickGbreadYoutubeVideo(todayInfo) {
+  const orderedVideoIds = [];
+  const seen = new Set();
+  const query = SEARCH_QUERIES[todayInfo.day % SEARCH_QUERIES.length];
+  const queryPlan = [
+    [query, "relevance"],
+    [query, "date"],
+    ...SEARCH_QUERIES.filter((searchQuery) => searchQuery !== query).map((searchQuery) => [
+      searchQuery,
+      "relevance",
+    ]),
+  ];
+
+  console.log(`[daily-blog] 오늘 검색어: "${query}"`);
+
+  for (const [searchQuery, order] of queryPlan) {
+    const videoIds = await searchYoutubeVideoIds(searchQuery, order);
+
+    for (const videoId of videoIds) {
+      if (seen.has(videoId)) {
+        continue;
+      }
+
+      seen.add(videoId);
+      orderedVideoIds.push(videoId);
+    }
+  }
+
+  const details = await fetchYoutubeVideoDetails(orderedVideoIds.slice(0, 50));
+  const candidates = details
+    .filter(isUsableVideo)
+    .map((video) => ({
+      video,
+      score: scoreVideoCandidate(video),
+      durationSeconds: parseIsoDurationToSeconds(video.contentDetails?.duration),
+      publishedAt: video.snippet?.publishedAt || "",
+      viewCount: Number(video.statistics?.viewCount || 0),
+    }))
+    .sort((a, b) => {
+      if (b.score !== a.score) return b.score - a.score;
+      return new Date(b.publishedAt).getTime() - new Date(a.publishedAt).getTime();
+    });
+
+  console.log(
+    `[daily-blog] 그림의빵 후보 ${candidates.length}개 / 검색 결과 ${orderedVideoIds.length}개`,
+  );
+
+  for (const candidate of candidates.slice(0, 5)) {
+    console.log("[daily-blog] 후보", {
+      videoId: candidate.video.id,
+      title: candidate.video.snippet?.title,
+      score: candidate.score,
+      durationSeconds: candidate.durationSeconds,
+      viewCount: candidate.viewCount,
+      publishedAt: candidate.publishedAt,
+    });
+  }
+
+  if (candidates.length === 0) {
+    throw new Error(
+      `그림의빵 관련 영상 후보가 없습니다. min=${MIN_VIDEO_SECONDS}s max=${MAX_VIDEO_SECONDS}s excluded=${EXCLUDED_VIDEO_IDS.size}`,
+    );
+  }
+
+  return {
+    keyword: query,
+    videoUrl: `https://www.youtube.com/watch?v=${candidates[0].video.id}`,
+    selected: candidates[0],
+  };
+}
+
 function buildTistoryHtml(draft) {
   const opening = (draft.openingParagraphs || []).map(paragraphHtml).join("\n");
   const sections = (draft.sections || [])
@@ -231,35 +410,13 @@ async function publishToTistory({ draft }) {
   return data.tistory;
 }
 
-// 날짜 기반으로 키워드 로테이션
-const keyword = KEYWORDS[kstToday.day % KEYWORDS.length];
-console.log(`[daily-blog] 오늘 키워드: "${keyword}"`);
-
-// YouTube Data API v3로 영상 검색
+// YouTube Data API v3로 그림의빵 관련 영상 검색
 let videoUrl;
+let keyword;
 try {
-  const searchUrl = new URL("https://www.googleapis.com/youtube/v3/search");
-  searchUrl.searchParams.set("part", "snippet");
-  searchUrl.searchParams.set("q", keyword);
-  searchUrl.searchParams.set("type", "video");
-  searchUrl.searchParams.set("maxResults", "1");
-  searchUrl.searchParams.set("order", "date");
-  searchUrl.searchParams.set("key", YOUTUBE_API_KEY);
-
-  const searchRes = await fetch(searchUrl.toString());
-  if (!searchRes.ok) {
-    const err = await searchRes.json().catch(() => ({}));
-    throw new Error(`YouTube API ${searchRes.status}: ${JSON.stringify(err)}`);
-  }
-
-  const searchData = await searchRes.json();
-  const videoId = searchData.items?.[0]?.id?.videoId;
-
-  if (!videoId) {
-    throw new Error("검색 결과가 없습니다.");
-  }
-
-  videoUrl = `https://www.youtube.com/watch?v=${videoId}`;
+  const picked = await pickGbreadYoutubeVideo(kstToday);
+  videoUrl = picked.videoUrl;
+  keyword = picked.keyword;
 } catch (error) {
   console.error("[daily-blog] YouTube 검색 실패:", error.message);
   process.exit(1);
