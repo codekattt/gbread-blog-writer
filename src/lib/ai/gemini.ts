@@ -4,7 +4,7 @@ import { AppError } from "@/lib/errors/app-error";
 
 const DEFAULT_MODEL_FALLBACK_CHAIN: string[] = [
   "gemini-3.1-pro-preview",
-  "gemini-3-flash",
+  "gemini-3-flash-preview",
   "gemini-3.1-flash-lite",
 ];
 
@@ -53,10 +53,10 @@ function getErrorMessage(error: unknown): string {
   return String(error);
 }
 
-// 503/429: 같은 모델 재시도
+// 503: 같은 모델 재시도. 429는 quota 문제일 가능성이 높아 다음 모델로 넘긴다.
 function shouldRetry(error: unknown): boolean {
   const status = getErrorStatus(error);
-  return status === 503 || status === 429;
+  return status === 503;
 }
 
 // 404: 모델 자체가 없는 것 → 다음 모델로 넘어감 (재시도 없이)
