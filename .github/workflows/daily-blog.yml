@@ -22,11 +22,20 @@ jobs:
         with:
           node-version: '20'
 
+      - name: 최근 작성 영상 이력 복원
+        uses: actions/cache@v4
+        with:
+          path: .cache/daily-blog-history.json
+          key: daily-blog-history-${{ github.run_id }}
+          restore-keys: |
+            daily-blog-history-
+
       - name: 블로그 초안 생성 및 디코 전송
         env:
           VERCEL_APP_URL: ${{ secrets.VERCEL_APP_URL }}
           DISCORD_WEBHOOK_URL: ${{ secrets.DISCORD_WEBHOOK_URL }}
           YOUTUBE_API_KEY: ${{ secrets.YOUTUBE_API_KEY }}
+          YOUTUBE_EXCLUDE_VIDEO_IDS: ${{ secrets.YOUTUBE_EXCLUDE_VIDEO_IDS || 'fypr4mrI0fI,XWj_uN2nO_U' }}
           FORCE_RUN: ${{ github.event.inputs.force_run || secrets.FORCE_RUN || '0' }}
           KOREA_HOLIDAY_FAIL_OPEN: ${{ secrets.KOREA_HOLIDAY_FAIL_OPEN || '0' }}
         run: node scripts/daily-blog.mjs

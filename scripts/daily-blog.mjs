@@ -1,3 +1,6 @@
+import { mkdir, readFile, writeFile } from "node:fs/promises";
+import { dirname } from "node:path";
+
 const SEARCH_QUERIES = [
   "그림의빵 리뷰",
   "그림의빵 혈당",
@@ -10,6 +13,8 @@ const BRAND_PATTERN = /그림\s*의\s*빵/i;
 const MIN_VIDEO_SECONDS = Number(process.env.YOUTUBE_MIN_VIDEO_SECONDS || 180);
 const MAX_VIDEO_SECONDS = Number(process.env.YOUTUBE_MAX_VIDEO_SECONDS || 3600);
 const SEARCH_MAX_RESULTS = Math.min(Number(process.env.YOUTUBE_SEARCH_MAX_RESULTS || 10), 25);
+const HISTORY_FILE = process.env.DAILY_BLOG_HISTORY_FILE || ".cache/daily-blog-history.json";
+const HISTORY_LIMIT = Number(process.env.DAILY_BLOG_HISTORY_LIMIT || 30);
 const EXCLUDED_VIDEO_IDS = new Set(
   (process.env.YOUTUBE_EXCLUDE_VIDEO_IDS || "")
     .split(",")
@@ -161,6 +166,68 @@ function textContainsBrand(...values) {
   return values.some((value) => BRAND_PATTERN.test(String(value || "")));
 }
 
+async function loadDailyBlogHistory() {
+  try {
+    const raw = await readFile(HISTORY_FILE, "utf8");
+    const parsed = JSON.parse(raw);
+    const usedVideos = Array.isArray(parsed?.usedVideos) ? parsed.usedVideos : [];
+
+    return {
+      usedVideos: usedVideos.filter((item) => typeof item?.videoId === "string"),
+    };
+  } catch (error) {
+    if (error?.code === "ENOENT") {
+      return { usedVideos: [] };
+    }
+
+    console.warn("[daily-blog] 최근 작성 이력 파일을 읽지 못해 빈 이력으로 시작합니다.", {
+      file: HISTORY_FILE,
+      message: error.message,
+    });
+    return { usedVideos: [] };
+  }
+}
+
+function getUsedVideoIds(history) {
+  return new Set(history.usedVideos.map((item) => item.videoId));
+}
+
+async function saveDailyBlogHistory(history) {
+  await mkdir(dirname(HISTORY_FILE), { recursive: true });
+  await writeFile(
+    HISTORY_FILE,
+    `${JSON.stringify(
+      {
+        ...history,
+        updatedAt: new Date().toISOString(),
+      },
+      null,
+      2,
+    )}\n`,
+  );
+}
+
+function appendUsedVideo(history, selected, todayInfo) {
+  const video = selected.video;
+  const nextItem = {
+    videoId: video.id,
+    title: video.snippet?.title || "",
+    channelName: video.snippet?.channelTitle || "",
+    url: `https://www.youtube.com/watch?v=${video.id}`,
+    keyword: selected.keyword,
+    score: selected.score,
+    usedAt: new Date().toISOString(),
+    usedDateKst: todayInfo.dateString,
+  };
+
+  const usedVideos = [
+    nextItem,
+    ...history.usedVideos.filter((item) => item.videoId !== video.id),
+  ].slice(0, HISTORY_LIMIT);
+
+  return { usedVideos };
+}
+
 function scoreVideoCandidate(video) {
   const title = video.snippet?.title || "";
   const description = video.snippet?.description || "";
@@ -234,7 +301,7 @@ function isUsableVideo(video) {
   return durationSeconds >= MIN_VIDEO_SECONDS && durationSeconds <= MAX_VIDEO_SECONDS;
 }
 
-async function pickGbreadYoutubeVideo(todayInfo) {
+async function pickGbreadYoutubeVideo(todayInfo, usedVideoIds) {
   const orderedVideoIds = [];
   const seen = new Set();
   const query = SEARCH_QUERIES[todayInfo.day % SEARCH_QUERIES.length];
@@ -263,7 +330,7 @@ async function pickGbreadYoutubeVideo(todayInfo) {
   }
 
   const details = await fetchYoutubeVideoDetails(orderedVideoIds.slice(0, 50));
-  const candidates = details
+  const allCandidates = details
     .filter(isUsableVideo)
     .map((video) => ({
       video,
@@ -276,9 +343,11 @@ async function pickGbreadYoutubeVideo(todayInfo) {
       if (b.score !== a.score) return b.score - a.score;
       return new Date(b.publishedAt).getTime() - new Date(a.publishedAt).getTime();
     });
+  const candidates = allCandidates.filter((candidate) => !usedVideoIds.has(candidate.video.id));
+  const skippedCount = allCandidates.length - candidates.length;
 
   console.log(
-    `[daily-blog] 그림의빵 후보 ${candidates.length}개 / 검색 결과 ${orderedVideoIds.length}개`,
+    `[daily-blog] 그림의빵 후보 ${candidates.length}개 / 검색 결과 ${orderedVideoIds.length}개 / 최근 작성 제외 ${skippedCount}개`,
   );
 
   for (const candidate of candidates.slice(0, 5)) {
@@ -294,14 +363,17 @@ async function pickGbreadYoutubeVideo(todayInfo) {
 
   if (candidates.length === 0) {
     throw new Error(
-      `그림의빵 관련 영상 후보가 없습니다. min=${MIN_VIDEO_SECONDS}s max=${MAX_VIDEO_SECONDS}s excluded=${EXCLUDED_VIDEO_IDS.size}`,
+      `최근 작성 이력을 제외한 그림의빵 관련 영상 후보가 없습니다. 전체후보=${allCandidates.length} min=${MIN_VIDEO_SECONDS}s max=${MAX_VIDEO_SECONDS}s excluded=${EXCLUDED_VIDEO_IDS.size} history=${usedVideoIds.size}`,
     );
   }
 
   return {
     keyword: query,
     videoUrl: `https://www.youtube.com/watch?v=${candidates[0].video.id}`,
-    selected: candidates[0],
+    selected: {
+      ...candidates[0],
+      keyword: query,
+    },
   };
 }
 
@@ -413,10 +485,16 @@ async function publishToTistory({ draft }) {
 // YouTube Data API v3로 그림의빵 관련 영상 검색
 let videoUrl;
 let keyword;
+let selectedVideo;
+const dailyBlogHistory = await loadDailyBlogHistory();
+const usedVideoIds = getUsedVideoIds(dailyBlogHistory);
+console.log(`[daily-blog] 최근 작성 이력 ${usedVideoIds.size}개를 제외 대상으로 사용합니다.`);
+
 try {
-  const picked = await pickGbreadYoutubeVideo(kstToday);
+  const picked = await pickGbreadYoutubeVideo(kstToday, usedVideoIds);
   videoUrl = picked.videoUrl;
   keyword = picked.keyword;
+  selectedVideo = picked.selected;
 } catch (error) {
   console.error("[daily-blog] YouTube 검색 실패:", error.message);
   process.exit(1);
@@ -536,4 +614,5 @@ if (!discordRes.ok) {
   process.exit(1);
 }
 
+await saveDailyBlogHistory(appendUsedVideo(dailyBlogHistory, selectedVideo, kstToday));
 console.log("[daily-blog] ✅ Discord 전송 완료!");

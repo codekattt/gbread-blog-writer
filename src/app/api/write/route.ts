@@ -6,6 +6,10 @@ import { buildPlainTextDraft } from "@/lib/format/plain-text";
 import { buildWritePrompt } from "@/lib/prompts/write";
 import { draftResponseJsonSchema, draftSchema, writeRequestSchema } from "@/lib/schemas/draft";
 
+function buildSourceNote(video: { channelName: string; canonicalUrl: string }) {
+  return `본 포스팅은 유튜브 채널 '${video.channelName}'의 영상을 바탕으로 작성되었습니다. 원본 영상: ${video.canonicalUrl}`;
+}
+
 export async function POST(request: Request) {
   try {
     const body = writeRequestSchema.parse(await request.json());
@@ -23,11 +27,14 @@ export async function POST(request: Request) {
     });
 
     const selectedTitle = draft.titleOptions[0];
+    const sourceNote = buildSourceNote(body.video);
     const result = {
       ...draft,
+      sourceNote,
       selectedTitle,
       plainText: buildPlainTextDraft({
         ...draft,
+        sourceNote,
         selectedTitle,
       }),
       modelUsed,

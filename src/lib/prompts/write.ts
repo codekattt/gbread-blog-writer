@@ -148,6 +148,7 @@ ${getToneRequirement(tone)}
 [영상 정보]
 - 제목: ${video.title}
 - 채널명: ${video.channelName}
+- 원본 URL: ${video.canonicalUrl}
 
 [분석 결과]
 - 요약: ${analysis.summary}
