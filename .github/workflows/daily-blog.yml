@@ -1,8 +1,6 @@
 name: 매일 블로그 초안 생성
 
 on:
-  schedule:
-    - cron: '0 1 * * 1-5' # 평일 오전 10시 KST (UTC 01:00), 한국 공휴일은 스크립트에서 제외
   workflow_dispatch: # 수동 실행 버튼
     inputs:
       force_run:
